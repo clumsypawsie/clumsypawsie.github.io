@@ -1,448 +1,1198 @@
+from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
+from collections import deque
+from itertools import groupby
+from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from threading import Lock
+import json
+import os
+import uuid
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "mask_math_so_secret_change_me")
+
+# ---------- CONFIG ----------
+# Defaults only. Per-user settings are stored in session so users do not overwrite each other.
+DEFAULT_SETTINGS = {
+    "START_RGB": (241, 219, 29),
+    "ADD_VALUE": 32,
+    "SUB_VALUE": 16,
+    "MAX_DEPTH": 48
+}
+
+DYES = ["red", "green", "blue", "black"]
+
+# Permanent shared custom base preset storage.
+# This creates data/base_presets.json beside this app file.
+DATA_DIR = Path(__file__).resolve().parent / "data"
+HAIR_PRESET_FILE = DATA_DIR / "base_presets.json"
+OLD_HAIR_PRESET_FILE = DATA_DIR / "hair_presets.json"
+_PRESET_LOCK = Lock()
+
+# The preset list starts empty. It only shows presets users save.
+# Presets are shared by everyone using this Flask server.
+
+
+
+# ---------- SMALL HELPERS ----------
+def clamp255(x):
+    return max(0, min(255, int(x)))
+
+
+def rgb_tuple(value, fallback=(0, 0, 0)):
+    try:
+        if isinstance(value, str):
+            parts = [int(p.strip()) for p in value.replace("(", "").replace(")", "").split(",")]
+        else:
+            parts = list(value)
+        if len(parts) != 3:
+            return fallback
+        return tuple(clamp255(v) for v in parts)
+    except Exception:
+        return fallback
+
+
+def hex_to_rgb(hex_value):
+    raw = (hex_value or "").strip().lstrip("#")
+    if len(raw) != 6:
+        raise ValueError("Hex color must be 6 characters.")
+    return tuple(int(raw[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(rgb):
+    r, g, b = rgb_tuple(rgb)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def get_settings():
+    saved = session.get("settings", {})
+    start = rgb_tuple(saved.get("START_RGB", DEFAULT_SETTINGS["START_RGB"]), DEFAULT_SETTINGS["START_RGB"])
+    return {
+        "START_RGB": start,
+        "ADD_VALUE": int(saved.get("ADD_VALUE", DEFAULT_SETTINGS["ADD_VALUE"])),
+        "SUB_VALUE": int(saved.get("SUB_VALUE", DEFAULT_SETTINGS["SUB_VALUE"])),
+        "MAX_DEPTH": int(saved.get("MAX_DEPTH", DEFAULT_SETTINGS["MAX_DEPTH"])),
+    }
+
+
+def save_settings(start_rgb, add_value, sub_value, max_depth):
+    session["settings"] = {
+        "START_RGB": list(rgb_tuple(start_rgb, DEFAULT_SETTINGS["START_RGB"])),
+        "ADD_VALUE": int(add_value),
+        "SUB_VALUE": int(sub_value),
+        "MAX_DEPTH": max(0, min(80, int(max_depth)))  # prevent huge accidental searches
+    }
+    session.modified = True
+
+
+def ensure_preset_file():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not HAIR_PRESET_FILE.exists():
+        # If you used the previous version, keep the user-made presets you already saved.
+        if OLD_HAIR_PRESET_FILE.exists():
+            HAIR_PRESET_FILE.write_text(OLD_HAIR_PRESET_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            HAIR_PRESET_FILE.write_text("[]", encoding="utf-8")
+
+
+def load_custom_hair_presets():
+    ensure_preset_file()
+    with _PRESET_LOCK:
+        try:
+            data = json.loads(HAIR_PRESET_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                return []
+            cleaned = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name", "")).strip()
+                rgb = rgb_tuple(item.get("rgb", [0, 0, 0]))
+                if name:
+                    cleaned.append({
+                        "id": str(item.get("id") or uuid.uuid4().hex),
+                        "name": name[:40],
+                        "rgb": list(rgb),
+                        "builtin": False,
+                        "created_at": item.get("created_at", datetime.now().isoformat(timespec="seconds"))
+                    })
+            return cleaned
+        except Exception:
+            return []
+
+
+def save_custom_hair_presets(presets):
+    ensure_preset_file()
+    with _PRESET_LOCK:
+        tmp = HAIR_PRESET_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(presets, indent=2), encoding="utf-8")
+        tmp.replace(HAIR_PRESET_FILE)
+
+
+def all_hair_presets():
+    return load_custom_hair_presets()
+
+
+def add_custom_hair_preset(name, rgb):
+    presets = load_custom_hair_presets()
+    name = str(name or "").strip()[:40]
+    if not name:
+        raise ValueError("Preset name is required.")
+    rgb = list(rgb_tuple(rgb))
+    # If a custom preset already has the same name, update it instead of duplicating.
+    for preset in presets:
+        if preset["name"].lower() == name.lower():
+            preset["rgb"] = rgb
+            preset["created_at"] = datetime.now().isoformat(timespec="seconds")
+            save_custom_hair_presets(presets)
+            return preset
+
+    preset = {
+        "id": uuid.uuid4().hex,
+        "name": name,
+        "rgb": rgb,
+        "builtin": False,
+        "created_at": datetime.now().isoformat(timespec="seconds")
+    }
+    presets.append(preset)
+    save_custom_hair_presets(presets)
+    return preset
+
+
+def delete_custom_hair_preset(preset_id):
+    presets = load_custom_hair_presets()
+    new_presets = [p for p in presets if p.get("id") != preset_id]
+    save_custom_hair_presets(new_presets)
+
+
+# ---------- MASK MATH ----------
+def dye_vector(dye, add_val, sub_val):
+    if dye == "red":
+        return (add_val, -sub_val, -sub_val)
+    if dye == "green":
+        return (-sub_val, add_val, -sub_val)
+    if dye == "blue":
+        return (-sub_val, -sub_val, add_val)
+    if dye == "black":
+        return (-32, -32, -32)
+    raise ValueError("unknown dye")
+
+
+def apply_dye_to_mask(mask, dye, add_val=None, sub_val=None):
+    settings = get_settings()
+    if add_val is None:
+        add_val = settings["ADD_VALUE"]
+    if sub_val is None:
+        sub_val = settings["SUB_VALUE"]
+
+    dv = dye_vector(dye, add_val, sub_val)
+    return (
+        clamp255(mask[0] + dv[0]),
+        clamp255(mask[1] + dv[1]),
+        clamp255(mask[2] + dv[2])
+    )
+
+
+def apply_mask_to_color(base_rgb, mask):
+    # channel-wise: round(base * mask / 255)
+    r = int(round(base_rgb[0] * mask[0] / 255.0))
+    g = int(round(base_rgb[1] * mask[1] / 255.0))
+    b = int(round(base_rgb[2] * mask[2] / 255.0))
+    return (clamp255(r), clamp255(g), clamp255(b))
+
+
+def manhattan(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+
+
+# ---------- SEARCH ----------
+# Cached so repeated targets/presets feel instant.
+@lru_cache(maxsize=2048)
+def _find_sequence_cached(target_rgb, start_rgb, add_val, sub_val, max_depth):
+    start_mask = (255, 255, 255)
+    start_color = apply_mask_to_color(start_rgb, start_mask)
+
+    q = deque([(start_mask, ())])
+    visited = {start_mask}
+
+    best_mask, best_seq = start_mask, ()
+    best_color = start_color
+    best_diff = manhattan(best_color, target_rgb)
+
+    while q:
+        mask, seq = q.popleft()
+        if len(seq) > max_depth:
+            continue
+
+        color = apply_mask_to_color(start_rgb, mask)
+        diff = manhattan(color, target_rgb)
+
+        if diff < best_diff:
+            best_diff = diff
+            best_mask = mask
+            best_seq = seq
+            best_color = color
+            if best_diff == 0:
+                break
+
+        if len(seq) == max_depth:
+            continue
+
+        for dye in DYES:
+            nxt_mask = apply_dye_to_mask(mask, dye, add_val, sub_val)
+            if nxt_mask not in visited:
+                visited.add(nxt_mask)
+                q.append((nxt_mask, seq + (dye,)))
+
+    return tuple(best_seq), tuple(best_mask), tuple(best_color), int(best_diff), len(visited)
+
+
+def find_sequence_to_target(target_rgb, settings=None):
+    if settings is None:
+        settings = get_settings()
+
+    target_rgb = rgb_tuple(target_rgb)
+    start_rgb = rgb_tuple(settings["START_RGB"])
+    add_val = int(settings["ADD_VALUE"])
+    sub_val = int(settings["SUB_VALUE"])
+    max_depth = max(0, min(80, int(settings["MAX_DEPTH"])))
+
+    seq, final_mask, final_color, diff, states_checked = _find_sequence_cached(
+        target_rgb, start_rgb, add_val, sub_val, max_depth
+    )
+    return list(seq), final_mask, final_color, diff, states_checked
+
+
+# ---------- PRESENTATION ----------
+def pretty_sequence(seq):
+    if not seq:
+        return "No dyes applied"
+
+    colors = {
+        "red": "#ff6961",
+        "green": "#77dd77",
+        "blue": "#72a7ff",
+        "black": "#d8d8d8"
+    }
+
+    parts = []
+    for token, grp in groupby(seq):
+        n = len(list(grp))
+        hexcol = colors.get(token, "#fff")
+        parts.append(
+            f'<span class="seq-token seq-{token}" style="--chip:{hexcol}">'
+            f'<b>{n}x</b> {token}</span>'
+        )
+    return " ".join(parts)
+
+
+def make_result(target, settings):
+    steps, final_mask, final_color, diff, states_checked = find_sequence_to_target(target, settings)
+    return {
+        "sequence": pretty_sequence(steps),
+        "plain_sequence": ", ".join(steps) if steps else "No dyes applied",
+        "raw_steps": steps,
+        "final_mask": final_mask,
+        "final_color": final_color,
+        "target": rgb_tuple(target),
+        "target_hex": rgb_to_hex(target),
+        "final_hex": rgb_to_hex(final_color),
+        "diff": diff,
+        "states_checked": states_checked
+    }
+
+
+# ---------- TEMPLATES ----------
+BASE_CSS = """
+:root{
+  --bg0:#080910;
+  --bg1:#17101f;
+  --glass:rgba(12,14,24,.72);
+  --glass2:rgba(255,255,255,.08);
+  --line:rgba(255,255,255,.16);
+  --text:#f8f4ff;
+  --muted:rgba(248,244,255,.72);
+  --accent:#d7b7ff;
+  --accent2:#8ef6d1;
+  --danger:#ff8a8a;
+  --radius:22px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{
+  font-family:'Rubik',system-ui,-apple-system,Segoe UI,sans-serif;
+  color:var(--text);
+  background:
+    radial-gradient(circle at top left,rgba(215,183,255,.22),transparent 34%),
+    radial-gradient(circle at bottom right,rgba(142,246,209,.16),transparent 30%),
+    linear-gradient(135deg,var(--bg0),var(--bg1));
+  background-image:
+    linear-gradient(135deg,rgba(8,9,16,.74),rgba(23,16,31,.82)),
+    var(--bg-image, none);
+  background-repeat:no-repeat;
+  background-size:cover;
+  background-position:center;
+  background-attachment:fixed;
+  font-size:16px;
+}
+a{color:var(--text);text-decoration:none}
+a:hover{text-decoration:underline}
+.page{
+  width:min(1180px,calc(100% - 28px));
+  margin:24px auto 50px;
+}
+.hero{
+  display:grid;
+  grid-template-columns:1.1fr .9fr;
+  gap:18px;
+  align-items:stretch;
+  margin-bottom:18px;
+}
+.card{
+  background:var(--glass);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:0 18px 55px rgba(0,0,0,.36);
+  backdrop-filter: blur(18px);
+  padding:22px;
+}
+.title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+h1,h2,h3{margin:0}
+h1{font-size:clamp(34px,5vw,66px);line-height:.95;letter-spacing:-1.8px}
+h2{font-size:24px}
+h3{font-size:18px;color:var(--muted);font-weight:600}
+.subtitle{color:var(--muted);font-size:17px;line-height:1.5;margin:12px 0 0}
+.nav{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.nav a,.chip,.btn{
+  border:1px solid var(--line);
+  background:var(--glass2);
+  color:var(--text);
+  border-radius:999px;
+  padding:10px 14px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+.nav a:hover,.btn:hover,.chip:hover{
+  background:rgba(255,255,255,.14);
+  text-decoration:none;
+}
+.grid{display:grid;gap:18px}
+.grid.two{grid-template-columns:1fr 1fr}
+.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.field label{display:block;margin:0 0 7px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.08em}
+input,select,button{
+  font:inherit;
+}
+input[type=number],input[type=text],input[type=color]{
+  width:100%;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:rgba(255,255,255,.09);
+  color:var(--text);
+  padding:13px 14px;
+  outline:none;
+}
+input[type=color]{
+  height:49px;
+  padding:5px;
+  cursor:pointer;
+}
+input:focus{
+  border-color:rgba(215,183,255,.7);
+  box-shadow:0 0 0 4px rgba(215,183,255,.12);
+}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.btn,input[type=submit],button{
+  cursor:pointer;
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:12px 16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.07));
+  color:var(--text);
+  transition:transform .12s ease,background .12s ease,border-color .12s ease;
+}
+.btn.primary,input.primary{
+  border-color:rgba(215,183,255,.55);
+  background:linear-gradient(135deg,rgba(215,183,255,.28),rgba(142,246,209,.16));
+}
+.btn.danger{border-color:rgba(255,138,138,.35);color:#ffd9d9}
+.btn:hover,input[type=submit]:hover,button:hover{transform:translateY(-1px)}
+.btn:active,input[type=submit]:active,button:active{transform:translateY(0)}
+.swatch{
+  width:54px;height:54px;
+  border:1px solid rgba(255,255,255,.48);
+  border-radius:16px;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 8px 22px rgba(0,0,0,.28);
+  flex:0 0 auto;
+}
+.swatch.large{width:88px;height:88px;border-radius:22px}
+.result-wrap{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start}
+.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.stat{
+  background:rgba(255,255,255,.07);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:14px;
+}
+.stat span{display:block;color:var(--muted);font-size:13px;margin-bottom:5px}
+.stat strong{font-size:19px}
+.sequence{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:14px;
+}
+.seq-token{
+  --chip:#fff;
+  display:inline-flex;
+  gap:6px;
+  align-items:center;
+  padding:9px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.16);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--chip) 28%,transparent),rgba(255,255,255,.07));
+  color:#fff;
+  text-shadow:0 1px 1px rgba(0,0,0,.62);
+}
+.preview-panel{
+  display:grid;
+  gap:12px;
+}
+.compare{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.compare-box{
+  border:1px solid var(--line);
+  border-radius:20px;
+  background:rgba(255,255,255,.07);
+  padding:12px;
+}
+.compare-box p{margin:8px 0 0;color:var(--muted)}
+#visual{
+  width:100%;
+  height:118px;
+  border:1px solid rgba(255,255,255,.4);
+  border-radius:18px;
+  box-shadow:0 14px 35px rgba(0,0,0,.32);
+}
+.preset-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.preset-card{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  text-align:left;
+  width:100%;
+  border-radius:18px;
+  padding:10px;
+}
+.preset-card .mini{
+  width:34px;height:34px;border-radius:11px;
+  border:1px solid rgba(255,255,255,.44);
+  flex:0 0 auto;
+}
+.preset-card strong{display:block;font-size:14px}
+.preset-card small{color:var(--muted)}
+.notice{
+  color:var(--muted);
+  margin:10px 0 0;
+  line-height:1.45;
+}
+.table-list{display:grid;gap:12px;margin-top:14px}
+.item{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  gap:12px;
+  align-items:center;
+  background:rgba(255,255,255,.07);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:12px;
+}
+.item-main{min-width:0}
+.item-main strong{display:block}
+.item-main small{color:var(--muted)}
+hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+code{color:var(--accent2);background:rgba(255,255,255,.07);padding:2px 6px;border-radius:8px}
+.loader{
+  display:none;
+  color:var(--muted);
+  margin-top:12px;
+}
+body.is-loading .loader{display:block}
+
+@keyframes fadeLift{
+  from{opacity:0;transform:translateY(18px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes softGlow{
+  0%,100%{filter:drop-shadow(0 0 0 rgba(215,183,255,0))}
+  50%{filter:drop-shadow(0 0 18px rgba(215,183,255,.22))}
+}
+@keyframes borderSweep{
+  0%{background-position:0% 50%}
+  100%{background-position:200% 50%}
+}
+@keyframes chipPop{
+  from{opacity:0;transform:translateY(6px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes floaty{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(-6px)}
+}
+@keyframes sweep{
+  0%{transform:translateX(-120%) rotate(12deg)}
+  100%{transform:translateX(160%) rotate(12deg)}
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:-20%;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 20% 20%,rgba(215,183,255,.18),transparent 22%),
+    radial-gradient(circle at 80% 70%,rgba(142,246,209,.12),transparent 25%);
+  animation:floaty 9s ease-in-out infinite;
+  z-index:-1;
+}
+.page{animation:fadeLift .55s ease both}
+.card{
+  animation:fadeLift .5s ease both;
+  position:relative;
+  overflow:hidden;
+}
+.card:nth-child(2){animation-delay:.05s}
+.card:nth-child(3){animation-delay:.1s}
+.card::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(100deg,transparent 0%,rgba(255,255,255,.08) 42%,transparent 70%);
+  transform:translateX(-120%) rotate(12deg);
+  opacity:.65;
+}
+.card:hover::after{animation:sweep .85s ease}
+.title h1{animation:softGlow 4.5s ease-in-out infinite}
+.nav a,.btn,input[type=submit],button,.preset-card{
+  will-change:transform;
+}
+.nav a:hover,.btn:hover,input[type=submit]:hover,button:hover,.preset-card:hover{
+  transform:translateY(-2px) scale(1.015);
+  border-color:rgba(215,183,255,.38);
+}
+.swatch,.mini{transition:transform .18s ease,box-shadow .18s ease}
+.swatch:hover,.mini:hover{transform:scale(1.06);box-shadow:0 12px 30px rgba(0,0,0,.38)}
+.seq-token{animation:chipPop .26s ease both}
+.sequence .seq-token:nth-child(2){animation-delay:.03s}
+.sequence .seq-token:nth-child(3){animation-delay:.06s}
+.sequence .seq-token:nth-child(4){animation-delay:.09s}
+.sequence .seq-token:nth-child(5){animation-delay:.12s}
+.loader::after{
+  content:"";
+  display:inline-block;
+  width:30px;height:2px;margin-left:8px;
+  border-radius:999px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  background-size:200% 100%;
+  animation:borderSweep .75s linear infinite;
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+@media (max-width:850px){
+  .hero,.grid.two,.result-wrap{grid-template-columns:1fr}
+  .form-grid{grid-template-columns:1fr}
+}
+"""
+
+MAIN_HTML = """
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Dye Doxxer (Static)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="icon" href="favicon.png">
-  <style>
-    html,body{margin:0;padding:0}
-    body{
-      font-family:'Rubik', sans-serif;
-      font-size:20px;
-      margin:40px;
-      color:#fff;
-      background-image:url('background.png');
-      background-repeat:no-repeat;
-      background-position:center center;
-      background-attachment:fixed;
-      background-size:cover;
-      text-shadow:0 1px 1px rgba(0,0,0,.6);
-    }
-    .card{
-      background-color:rgba(0,0,0,.55);
-      padding:20px;
-      border-radius:12px;
-      margin-top:20px;
-      display:inline-block;
-      border:1px solid rgba(255,255,255,.15);
-      box-shadow:0 8px 30px rgba(0,0,0,.35);
-    }
-    label{display:inline-block;width:160px}
-    input[type=number]{width:110px;font-size:20px}
-    input[type=submit],button,select{
-      font-size:22px;padding:10px 18px;cursor:pointer;border-radius:10px;
-      background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);
-      color:#fff;
-    }
-    input[type=submit]:hover,button:hover{background:rgba(255,255,255,.18)}
-    .sequence{font-size:24px;margin-top:10px}
-    .swatch{display:inline-block;width:50px;height:50px;border:1px solid #fff;margin-left:8px;vertical-align:middle}
-    .nav{margin-top:16px;font-size:22px}
-    .row{margin-top:8px}
-    a, .link {color:#fff;text-decoration:underline;cursor:pointer}
-    .pill{display:inline-block;padding:6px 10px;border:1px solid rgba(255,255,255,.25);border-radius:9999px;background:rgba(255,255,255,.1)}
-    .mini-btn{font-size:16px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;cursor:pointer}
-    .mini-btn:hover{background:rgba(255,255,255,.18)}
-    .sw{display:inline-block;width:20px;height:20px;border:1px solid #fff;border-radius:4px;margin-right:8px;vertical-align:middle}
-    #visual{box-shadow:0 6px 20px rgba(0,0,0,.35);border-radius:10px}
-    .tabs{margin-bottom:8px}
-    .tabs button{margin-right:6px}
-    /* simple hide/show sections */
-    .hidden{display:none}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dye Doxxer</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+<style>{{ base_css }}</style>
+<style>:root{--bg-image:url('{{ url_for('static', filename='background.png') }}')}</style>
 </head>
 <body>
-  <div class="card" style="display:block;max-width:900px">
-    <div class="tabs">
-      <button id="tab-home">Finder</button>
-      <button id="tab-saved">Saved</button>
-      <button id="tab-history">History</button>
-      <button id="tab-settings">Settings</button>
+<div class="page">
+  <section class="hero">
+    <div class="card">
+      <div class="title">
+        <div>
+          <h1>Dye Doxxer</h1>
+          <p class="subtitle">Find the closest dye sequence, use saved base presets, and keep user-made presets permanently.</p>
+        </div>
+      </div>
+      <div class="nav">
+        <a href="{{ url_for('home') }}">Finder</a>
+        <a href="{{ url_for('saved') }}">Saved</a>
+        <a href="{{ url_for('history') }}">History</a>
+        <a href="{{ url_for('settings') }}">Settings</a>
+      </div>
     </div>
 
-    <!-- =============== HOME / FINDER =============== -->
-    <section id="view-home">
-      <h2>Dye Doxxer</h2>
-      <div class="row">
-        <img src="dye_red.png"   alt="Red"   style="width:80px;height:80px;margin-right:8px">
-        <img src="dye_green.png" alt="Green" style="width:80px;height:80px;margin-right:8px">
-        <img src="dye_blue.png"  alt="Blue"  style="width:80px;height:80px;margin-right:8px">
-        <img src="dye_black.png" alt="Black" style="width:80px;height:80px;margin-right:8px">
-      </div>
-
-      <form id="finder-form" class="card" style="display:block">
-        <div class="row"><label>Target R (0–255):</label><input type="number" name="r" min="0" max="255" required></div>
-        <div class="row"><label>Target G (0–255):</label><input type="number" name="g" min="0" max="255" required></div>
-        <div class="row"><label>Target B (0–255):</label><input type="number" name="b" min="0" max="255" required></div>
-        <div class="row">
-          <input type="submit" value="Find Sequence">
-          <button type="button" id="btn-save" disabled>Save</button>
+    <div class="card">
+      <h2>Current base</h2>
+      <p class="notice">Base pixel: <strong>{{ start_rgb }}</strong> · Add {{ add_value }} · Sub {{ sub_value }} · Depth {{ max_depth }}</p>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:14px">
+        <div class="swatch large" style="background:rgb({{ start_rgb[0] }},{{ start_rgb[1] }},{{ start_rgb[2] }})"></div>
+        <div>
+          <strong>{{ start_hex }}</strong>
+          <p class="notice">Change this in Settings or save it as a base preset.</p>
+          <form method="post" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <input type="hidden" name="action" value="Save Base Preset">
+            <input type="hidden" name="r" value="{{ start_rgb[0] }}">
+            <input type="hidden" name="g" value="{{ start_rgb[1] }}">
+            <input type="hidden" name="b" value="{{ start_rgb[2] }}">
+            <input type="text" name="preset_name" placeholder="Preset name" style="max-width:160px;padding:9px 12px">
+            <button type="submit" style="padding:9px 12px">Save base</button>
+          </form>
         </div>
-      </form>
-
-      <div id="result-card" class="card hidden">
-        <h3>Result</h3>
-        <p class="sequence"><strong>Sequence:</strong> <span id="seq-html"></span></p>
-        <p><strong>Final Color:</strong> <span id="final-color-text"></span>
-           <span class="swatch" id="final-color-swatch"></span></p>
-        <p><strong>Target:</strong> <span id="target-text"></span>
-           <span class="swatch" id="target-swatch"></span></p>
-        <p><strong>Final Mask:</strong> <span id="final-mask-text"></span></p>
-        <p><strong>Difference:</strong> <span id="diff-text"></span></p>
-
-        <button id="play">Play Sequence</button>
-        <canvas id="visual" width="300" height="100" style="border:2px solid #fff;margin-top:10px"></canvas>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- =============== SAVED =============== -->
-    <section id="view-saved" class="hidden">
-      <h2>Saved</h2>
-      <div id="saved-list"></div>
-      <div class="row"><span class="link" id="back-to-home-1">Back</span></div>
-    </section>
-
-    <!-- =============== HISTORY =============== -->
-    <section id="view-history" class="hidden">
-      <h2>History (last 10)</h2>
-      <div class="row">
-        <label>Filter (e.g. 241,219,29):</label>
-        <input type="text" id="hist-filter" style="font-size:18px" placeholder="type to filter…">
-      </div>
-      <div id="history-list" style="margin-top:10px"></div>
-      <div class="row"><span class="link" id="back-to-home-2">Back</span></div>
-    </section>
-
-    <!-- =============== SETTINGS =============== -->
-    <section id="view-settings" class="hidden">
-      <h2>Settings</h2>
-      <form id="settings-form">
-        <div class="row"><strong>Start (base pixel S):</strong></div>
-        <div class="row"><label>Start R:</label><input type="number" id="sr" min="0" max="255" required></div>
-        <div class="row"><label>Start G:</label><input type="number" id="sg" min="0" max="255" required></div>
-        <div class="row"><label>Start B:</label><input type="number" id="sb" min="0" max="255" required></div>
-        <hr style="margin:12px 0;border-color:#777">
-        <div class="row"><strong>Dye step parameters</strong></div>
-        <div class="row"><label>ADD_VALUE (+):</label><input type="number" id="add" required></div>
-        <div class="row"><label>SUB_VALUE (−):</label><input type="number" id="sub" required></div>
-        <div class="row"><label>Search MAX_DEPTH:</label><input type="number" id="depth" required></div>
-        <div class="row">
-          <button type="submit">Save Settings</button>
+  <section class="grid two">
+    <div class="card">
+      <h2>Target color</h2>
+      <form method="post" id="finderForm">
+        <input type="hidden" name="action" id="actionInput" value="Find Sequence">
+        <div class="form-grid">
+          <div class="field">
+            <label>Target R</label>
+            <input type="number" name="r" id="r" min="0" max="255" value="{{ form_rgb[0] }}" required>
+          </div>
+          <div class="field">
+            <label>Target G</label>
+            <input type="number" name="g" id="g" min="0" max="255" value="{{ form_rgb[1] }}" required>
+          </div>
+          <div class="field">
+            <label>Target B</label>
+            <input type="number" name="b" id="b" min="0" max="255" value="{{ form_rgb[2] }}" required>
+          </div>
         </div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field">
+            <label>Color picker</label>
+            <input type="color" id="picker" value="{{ form_hex }}">
+          </div>
+          <div class="field">
+            <label>Preset name</label>
+            <input type="text" name="preset_name" placeholder="e.g., My saved base">
+          </div>
+          <div class="field">
+            <label>Preview</label>
+            <div class="swatch" id="targetPreview" style="background:{{ form_hex }}"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" type="submit" onclick="document.getElementById('actionInput').value='Find Sequence'">Find Sequence</button>
+          <button type="submit" onclick="document.getElementById('actionInput').value='Save Result'">Save Result</button>
+          <button type="submit" onclick="document.getElementById('actionInput').value='Save Base Preset'">Save Base Preset</button>
+        </div>
+        <div class="loader">Searching the closest sequence...</div>
       </form>
+    </div>
 
-      <div class="row"><span class="link" id="back-to-home-3">Back</span></div>
-    </section>
-  </div>
+    <div class="card">
+      <h2>Base presets</h2>
+      <p class="notice">Only user-saved presets appear here. They are saved to <code>data/base_presets.json</code> for everyone using this Flask app.</p>
+      {% if hair_presets %}
+      <div class="preset-grid">
+        {% for p in hair_presets %}
+        <form method="post">
+          <input type="hidden" name="action" value="Find Sequence">
+          <input type="hidden" name="r" value="{{ p.rgb[0] }}">
+          <input type="hidden" name="g" value="{{ p.rgb[1] }}">
+          <input type="hidden" name="b" value="{{ p.rgb[2] }}">
+          <button class="preset-card" type="submit">
+            <span class="mini" style="background:rgb({{ p.rgb[0] }},{{ p.rgb[1] }},{{ p.rgb[2] }})"></span>
+            <span>
+              <strong>{{ p.name }}</strong>
+              <small>{{ p.rgb[0] }}, {{ p.rgb[1] }}, {{ p.rgb[2] }}</small>
+            </span>
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+      {% else %}
+        <p class="notice">No base presets yet. Save one from the target color form or Settings.</p>
+      {% endif %}
+    </div>
+  </section>
 
-  <script>
-  // ---------------------- Storage helpers ----------------------
-  const store = {
-    get(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch(e){ return fallback; } },
-    set(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
-  };
+  {% if result %}
+  <section class="card" style="margin-top:18px">
+    <div class="title">
+      <div>
+        <h2>Result</h2>
+        <p class="notice">Difference: {{ result.diff }} · Checked {{ result.states_checked }} states</p>
+      </div>
+      <button type="button" id="copySequence">Copy sequence</button>
+    </div>
 
-  // ---------------------- Defaults (match Flask) ----------------------
-  const DEFAULTS = {
-    START_RGB: [241, 219, 29],
-    ADD_VALUE: 32,
-    SUB_VALUE: 16,
-    MAX_DEPTH: 48
-  };
+    <div class="result-wrap">
+      <div>
+        <h3>Sequence</h3>
+        <div class="sequence" id="sequenceText" data-plain="{{ result.plain_sequence }}">{{ result.sequence|safe }}</div>
 
-  // load or init config
-  const cfg = store.get('cfg', DEFAULTS);
-  // history & saved
-  let historyItems = store.get('history', []); // newest last; we’ll slice(-10)
-  let savedItems   = store.get('saved', []);
+        <div class="stat-grid">
+          <div class="stat"><span>Target</span><strong>{{ result.target }} / {{ result.target_hex }}</strong></div>
+          <div class="stat"><span>Final Color</span><strong>{{ result.final_color }} / {{ result.final_hex }}</strong></div>
+          <div class="stat"><span>Final Mask</span><strong>{{ result.final_mask }}</strong></div>
+          <div class="stat"><span>Difference</span><strong>{{ result.diff }}</strong></div>
+        </div>
+      </div>
 
-  // ---------------------- Math helpers ----------------------
-  const DYES = ["red","green","blue","black"];
-  const clamp255 = x => Math.max(0, Math.min(255, x));
-  function dyeVector(dye, addVal, subVal){
-    if(dye==="red")   return [ addVal, -subVal, -subVal];
-    if(dye==="green") return [-subVal,  addVal, -subVal];
-    if(dye==="blue")  return [-subVal, -subVal,  addVal];
-    if(dye==="black") return [-32, -32, -32];
+      <div class="preview-panel">
+        <div class="compare">
+          <div class="compare-box">
+            <div class="swatch large" style="background:rgb({{ result.target[0] }},{{ result.target[1] }},{{ result.target[2] }})"></div>
+            <p>Target</p>
+          </div>
+          <div class="compare-box">
+            <div class="swatch large" style="background:rgb({{ result.final_color[0] }},{{ result.final_color[1] }},{{ result.final_color[2] }})"></div>
+            <p>Final</p>
+          </div>
+        </div>
+        <button id="play" type="button">Play Sequence</button>
+        <canvas id="visual" width="320" height="118"></canvas>
+      </div>
+    </div>
+  </section>
+
+<script>
+(function(){
+  const steps = {{ result.raw_steps|tojson }};
+  const startRGB = {{ start_rgb|tojson }};
+  const addVal = {{ add_value }};
+  const subVal = {{ sub_value }};
+
+  function dv(name){
+    if(name === 'red') return [ addVal, -subVal, -subVal];
+    if(name === 'green') return [-subVal,  addVal, -subVal];
+    if(name === 'blue') return [-subVal, -subVal,  addVal];
+    if(name === 'black') return [-32, -32, -32];
     return [0,0,0];
   }
-  function applyDyeToMask(mask, dye, addVal, subVal){
-    const dv = dyeVector(dye, addVal, subVal);
+  function clamp255(x){ return Math.max(0, Math.min(255, Math.round(x))); }
+  function applyMaskToColor(rgb, mask){
     return [
-      clamp255(mask[0] + dv[0]),
-      clamp255(mask[1] + dv[1]),
-      clamp255(mask[2] + dv[2]),
+      Math.round(clamp255(rgb[0] * mask[0] / 255)),
+      Math.round(clamp255(rgb[1] * mask[1] / 255)),
+      Math.round(clamp255(rgb[2] * mask[2] / 255))
     ];
   }
-  function applyMaskToColor(base, mask){
-    return [
-      clamp255(Math.round(base[0] * mask[0] / 255)),
-      clamp255(Math.round(base[1] * mask[1] / 255)),
-      clamp255(Math.round(base[2] * mask[2] / 255)),
-    ];
+  const canvas = document.getElementById('visual');
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  function paint(rgb, label){
+    if(!ctx) return;
+    const grad = ctx.createLinearGradient(0,0,canvas.width,0);
+    grad.addColorStop(0, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+    grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},.72)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'rgba(0,0,0,.38)';
+    ctx.fillRect(0,canvas.height-34,canvas.width,34);
+    ctx.fillStyle = '#fff';
+    ctx.font = '15px Rubik, sans-serif';
+    ctx.fillText(label || `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`, 14, canvas.height-13);
   }
-  function manhattan(a, b){ return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) + Math.abs(a[2]-b[2]); }
 
-  // ---------------------- BFS search over masks ----------------------
-  function findSequenceToTarget(target, opts){
-    const MAX_DEPTH = (opts && opts.maxDepth != null) ? opts.maxDepth : cfg.MAX_DEPTH;
-    const base = (opts && opts.startRGB) || cfg.START_RGB;
-    const addVal = (opts && opts.addVal != null) ? opts.addVal : cfg.ADD_VALUE;
-    const subVal = (opts && opts.subVal != null) ? opts.subVal : cfg.SUB_VALUE;
+  paint(startRGB, 'Base color');
 
-    const startMask = [255,255,255];
-    const startColor = applyMaskToColor(base, startMask);
-
-    let q = [[startMask, []]];
-    let visited = new Set([startMask.toString()]);
-
-    let bestMask = startMask.slice();
-    let bestSeq = [];
-    let bestColor = startColor.slice();
-    let bestDiff = manhattan(bestColor, target);
-
-    while(q.length){
-      const [mask, seq] = q.shift();
-      if(seq.length > MAX_DEPTH) continue;
-
-      const color = applyMaskToColor(base, mask);
-      const diff  = manhattan(color, target);
-      if(diff < bestDiff){
-        bestDiff = diff;
-        bestMask = mask.slice();
-        bestSeq  = seq.slice();
-        bestColor= color.slice();
-        if(bestDiff === 0) break;
-      }
-
-      for(const dye of DYES){
-        const nxt = applyDyeToMask(mask, dye, addVal, subVal);
-        const key = nxt.toString();
-        if(!visited.has(key)){
-          visited.add(key);
-          q.push([nxt, seq.concat(dye)]);
+  const play = document.getElementById('play');
+  if(play){
+    play.addEventListener('click', ()=>{
+      let mask = [255,255,255];
+      let cur = applyMaskToColor(startRGB, mask);
+      let i = 0;
+      paint(cur, 'Start');
+      const timer = setInterval(()=>{
+        if(i >= steps.length){
+          clearInterval(timer);
+          paint(cur, 'Done');
+          return;
         }
-      }
-    }
-    return { steps: bestSeq, finalMask: bestMask, finalColor: bestColor, diff: bestDiff };
-  }
-
-  // ---------------------- UI helpers ----------------------
-  function prettySequence(seq){
-    if(!seq || !seq.length) return "No dyes applied";
-    const colors = { red:"#ff4d4d", green:"#4dff4d", blue:"#4da6ff", black:"#ffffff" };
-    let out = [];
-    let i=0;
-    while(i<seq.length){
-      const token = seq[i];
-      let n=1; i++;
-      while(i<seq.length && seq[i]===token){ n++; i++; }
-      const hex = colors[token] || "#fff";
-      const style = `color:${hex}; font-size:22px; margin-right:12px; text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
-      out.push(`<span style="${style}">${n}x ${token}</span>`);
-    }
-    return out.join(" ");
-  }
-  function setSwatch(el, rgb){ el.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
-
-  // ---------------------- Tabs ----------------------
-  const viewHome    = document.getElementById('view-home');
-  const viewSaved   = document.getElementById('view-saved');
-  const viewHistory = document.getElementById('view-history');
-  const viewSettings= document.getElementById('view-settings');
-  function show(id){
-    for(const v of [viewHome,viewSaved,viewHistory,viewSettings]) v.classList.add('hidden');
-    id.classList.remove('hidden');
-  }
-  document.getElementById('tab-home').onclick    = ()=>show(viewHome);
-  document.getElementById('tab-saved').onclick   = ()=>{ renderSaved(); show(viewSaved); };
-  document.getElementById('tab-history').onclick = ()=>{ renderHistory(); show(viewHistory); };
-  document.getElementById('tab-settings').onclick= ()=>{ loadSettingsForm(); show(viewSettings); };
-  document.getElementById('back-to-home-1').onclick = ()=>show(viewHome);
-  document.getElementById('back-to-home-2').onclick = ()=>show(viewHome);
-  document.getElementById('back-to-home-3').onclick = ()=>show(viewHome);
-
-  // ---------------------- Finder logic ----------------------
-  const form = document.getElementById('finder-form');
-  const resultCard = document.getElementById('result-card');
-  const btnSave = document.getElementById('btn-save');
-
-  let lastResult = null;
-
-  form.addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const r = parseInt(form.r.value,10);
-    const g = parseInt(form.g.value,10);
-    const b = parseInt(form.b.value,10);
-    const target = [isNaN(r)?0:r, isNaN(g)?0:g, isNaN(b)?0:b];
-
-    const res = findSequenceToTarget(target);
-    lastResult = {
-      sequenceHTML: prettySequence(res.steps),
-      rawSteps: res.steps,
-      finalMask: res.finalMask,
-      finalColor: res.finalColor,
-      target: target,
-      diff: res.diff
-    };
-
-    // render
-    document.getElementById('seq-html').innerHTML = lastResult.sequenceHTML;
-    document.getElementById('final-color-text').textContent = `(${lastResult.finalColor[0]}, ${lastResult.finalColor[1]}, ${lastResult.finalColor[2]})`;
-    setSwatch(document.getElementById('final-color-swatch'), lastResult.finalColor);
-    document.getElementById('target-text').textContent = `(${target[0]}, ${target[1]}, ${target[2]})`;
-    setSwatch(document.getElementById('target-swatch'), target);
-    document.getElementById('final-mask-text').textContent = `(${lastResult.finalMask[0]}, ${lastResult.finalMask[1]}, ${lastResult.finalMask[2]})`;
-    document.getElementById('diff-text').textContent = lastResult.diff;
-
-    resultCard.classList.remove('hidden');
-    btnSave.disabled = false;
-
-    // history (limit 10)
-    historyItems.push({
-      sequence: lastResult.sequenceHTML,
-      final_mask: lastResult.finalMask,
-      final_color: lastResult.finalColor,
-      target: target,
-      diff: lastResult.diff,
-      ts: new Date().toISOString()
-    });
-    historyItems = historyItems.slice(-10);
-    store.set('history', historyItems);
-  });
-
-  btnSave.addEventListener('click', ()=>{
-    if(!lastResult) return;
-    savedItems.push({
-      sequence: lastResult.sequenceHTML,
-      final_mask: lastResult.finalMask,
-      final_color: lastResult.finalColor,
-      target: lastResult.target,
-      diff: lastResult.diff
-    });
-    store.set('saved', savedItems);
-    btnSave.disabled = true;
-    alert('Saved!');
-  });
-
-  // Play Sequence canvas
-  document.getElementById('play').addEventListener('click', ()=>{
-    if(!lastResult) return;
-    const steps = lastResult.rawSteps.slice();
-    const c = document.getElementById('visual');
-    const ctx = c.getContext('2d');
-
-    const startRGB = cfg.START_RGB.slice();
-    let mask = [255,255,255];
-    let cur = applyMaskToColor(startRGB, mask);
-    paint(cur);
-
-    let i = 0;
-    const t = setInterval(()=>{
-      if(i>=steps.length){ clearInterval(t); return; }
-      const d = dyeVector(steps[i++], cfg.ADD_VALUE, cfg.SUB_VALUE);
-      mask = [clamp255(mask[0]+d[0]), clamp255(mask[1]+d[1]), clamp255(mask[2]+d[2])];
-      cur = applyMaskToColor(startRGB, mask);
-      paint(cur);
-    }, 420);
-
-    function paint(rgb){
-      ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-      ctx.fillRect(0,0,c.width,c.height);
-    }
-  });
-
-  // ---------------------- Saved ----------------------
-  function renderSaved(){
-    const box = document.getElementById('saved-list');
-    box.innerHTML = '';
-    if(!savedItems.length){ box.innerHTML = '<p>No saved items.</p>'; return; }
-    savedItems.forEach((it, idx)=>{
-      const wrap = document.createElement('div');
-      wrap.style.borderBottom = '1px solid #fff';
-      wrap.style.marginBottom = '14px';
-      wrap.style.paddingBottom = '10px';
-      wrap.innerHTML = `
-        <div class="sequence"><strong>Sequence:</strong> ${it.sequence}</div>
-        <div><strong>Final Color:</strong> (${it.final_color[0]}, ${it.final_color[1]}, ${it.final_color[2]})
-          <span class="swatch" style="background: rgb(${it.final_color[0]},${it.final_color[1]},${it.final_color[2]});"></span>
-        </div>
-        <div><strong>Target:</strong> (${it.target[0]}, ${it.target[1]}, ${it.target[2]})
-          <span class="swatch" style="background: rgb(${it.target[0]},${it.target[1]},${it.target[2]});"></span>
-        </div>
-        <div><strong>Final Mask:</strong> (${it.final_mask[0]}, ${it.final_mask[1]}, ${it.final_mask[2]})</div>
-        <div><strong>Diff:</strong> ${it.diff}</div>
-        <button class="mini-btn" data-del="${idx}">Delete</button>
-      `;
-      box.appendChild(wrap);
-    });
-    // delete handlers
-    box.querySelectorAll('button[data-del]').forEach(btn=>{
-      btn.onclick = ()=>{
-        const i = parseInt(btn.getAttribute('data-del'),10);
-        if(!isNaN(i)){
-          savedItems.splice(i,1);
-          store.set('saved', savedItems);
-          renderSaved();
-        }
-      };
+        const name = steps[i++];
+        const d = dv(name);
+        mask = [clamp255(mask[0]+d[0]), clamp255(mask[1]+d[1]), clamp255(mask[2]+d[2])];
+        cur = applyMaskToColor(startRGB, mask);
+        paint(cur, `${i}/${steps.length}: ${name}`);
+      }, 260);
     });
   }
 
-  // ---------------------- History ----------------------
-  function renderHistory(){
-    const q = document.getElementById('hist-filter').value.trim();
-    const box = document.getElementById('history-list');
-    box.innerHTML = '';
-    let items = historyItems.slice().reverse(); // newest first
-    if(q) items = items.filter(it => (`${it.target}`).includes(q));
-    if(!items.length){ box.innerHTML = '<p>No history yet.</p>'; return; }
-    items.forEach(it=>{
-      const wrap = document.createElement('div');
-      wrap.style.borderBottom = '1px solid #fff';
-      wrap.style.marginBottom = '14px';
-      wrap.style.paddingBottom = '10px';
-      wrap.innerHTML = `
-        <div class="sequence"><strong>Sequence:</strong> ${it.sequence}</div>
-        <div><strong>Target:</strong> (${it.target[0]}, ${it.target[1]}, ${it.target[2]})
-          <span class="swatch" style="background: rgb(${it.target[0]},${it.target[1]},${it.target[2]});"></span>
-        </div>
-        <div><strong>Final Color:</strong> (${it.final_color[0]}, ${it.final_color[1]}, ${it.final_color[2]})
-          <span class="swatch" style="background: rgb(${it.final_color[0]},${it.final_color[1]},${it.final_color[2]});"></span>
-        </div>
-        <div><strong>Final Mask:</strong> (${it.final_mask[0]}, ${it.final_mask[1]}, ${it.final_mask[2]})</div>
-        <div><strong>Diff:</strong> ${it.diff}</div>
-      `;
-      box.appendChild(wrap);
+  const copy = document.getElementById('copySequence');
+  if(copy){
+    copy.addEventListener('click', async ()=>{
+      const text = document.getElementById('sequenceText')?.dataset?.plain || '';
+      await navigator.clipboard.writeText(text);
+      copy.textContent = 'Copied';
+      setTimeout(()=>copy.textContent='Copy sequence', 1200);
     });
   }
-  document.getElementById('hist-filter').addEventListener('input', renderHistory);
+})();
+</script>
+  {% endif %}
+</div>
 
-  // ---------------------- Settings ----------------------
-  function loadSettingsForm(){
-    document.getElementById('sr').value = cfg.START_RGB[0];
-    document.getElementById('sg').value = cfg.START_RGB[1];
-    document.getElementById('sb').value = cfg.START_RGB[2];
-    document.getElementById('add').value = cfg.ADD_VALUE;
-    document.getElementById('sub').value = cfg.SUB_VALUE;
-    document.getElementById('depth').value = cfg.MAX_DEPTH;
+<script>
+(function(){
+  const r = document.getElementById('r');
+  const g = document.getElementById('g');
+  const b = document.getElementById('b');
+  const picker = document.getElementById('picker');
+  const preview = document.getElementById('targetPreview');
+  const form = document.getElementById('finderForm');
+
+  function clamp(n){ return Math.max(0, Math.min(255, parseInt(n || '0', 10))); }
+  function toHex(n){ return clamp(n).toString(16).padStart(2,'0'); }
+  function syncFromRGB(){
+    const hex = `#${toHex(r.value)}${toHex(g.value)}${toHex(b.value)}`;
+    picker.value = hex;
+    preview.style.background = hex;
   }
-  document.getElementById('settings-form').addEventListener('submit', (e)=>{
-    e.preventDefault();
-    cfg.START_RGB = [parseInt(sr.value,10), parseInt(sg.value,10), parseInt(sb.value,10)].map(x=>isNaN(x)?0:x);
-    cfg.ADD_VALUE = parseInt(add.value,10) || 0;
-    cfg.SUB_VALUE = parseInt(sub.value,10) || 0;
-    cfg.MAX_DEPTH = parseInt(depth.value,10) || 0;
-    store.set('cfg', cfg);
-    alert('Settings saved');
-    show(viewHome);
-  });
-
-  // land on Finder by default
-  show(viewHome);
-  </script>
+  function syncFromPicker(){
+    const raw = picker.value.replace('#','');
+    r.value = parseInt(raw.slice(0,2),16);
+    g.value = parseInt(raw.slice(2,4),16);
+    b.value = parseInt(raw.slice(4,6),16);
+    preview.style.background = picker.value;
+  }
+  [r,g,b].forEach(el => el && el.addEventListener('input', syncFromRGB));
+  picker && picker.addEventListener('input', syncFromPicker);
+  form && form.addEventListener('submit', () => document.body.classList.add('is-loading'));
+})();
+</script>
 </body>
 </html>
+"""
 
+LIST_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dye Doxxer · {{ title }}</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+<style>{{ base_css }}</style>
+<style>:root{--bg-image:url('{{ url_for('static', filename='background.png') }}')}</style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <div class="title">
+      <div>
+        <h1 style="font-size:42px">{{ title }}</h1>
+        <p class="notice">{{ subtitle }}</p>
+      </div>
+      <div class="nav">
+        <a href="{{ url_for('home') }}">Finder</a>
+        <a href="{{ url_for('saved') }}">Saved</a>
+        <a href="{{ url_for('history') }}">History</a>
+        <a href="{{ url_for('settings') }}">Settings</a>
+      </div>
+    </div>
+
+    {% if items %}
+    <div class="table-list">
+      {% for idx, it in items %}
+      <div class="item">
+        <div class="swatch" style="background:rgb({{ it.final_color[0] }},{{ it.final_color[1] }},{{ it.final_color[2] }})"></div>
+        <div class="item-main">
+          <strong>{{ it.final_color }} → target {{ it.target }}</strong>
+          <small>Diff {{ it.diff }}{% if it.ts %} · {{ it.ts }}{% endif %}</small>
+          <div class="sequence">{{ it.sequence|safe }}</div>
+        </div>
+        {% if allow_delete %}
+        <form method="post" action="{{ url_for('delete_saved', idx=idx) }}">
+          <button class="btn danger" type="submit">Delete</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <p class="notice">Nothing here yet.</p>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>
+"""
+
+SETTINGS_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dye Doxxer · Settings</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+<style>{{ base_css }}</style>
+<style>:root{--bg-image:url('{{ url_for('static', filename='background.png') }}')}</style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <div class="title">
+      <div>
+        <h1 style="font-size:42px">Settings</h1>
+        <p class="notice">These settings are saved per user/session. Base presets below are shared permanently.</p>
+      </div>
+      <div class="nav">
+        <a href="{{ url_for('home') }}">Finder</a>
+        <a href="{{ url_for('saved') }}">Saved</a>
+        <a href="{{ url_for('history') }}">History</a>
+      </div>
+    </div>
+
+    <form method="post" class="grid">
+      <input type="hidden" name="action" value="Save Settings">
+      <h2>Base pixel and search</h2>
+      <div class="form-grid">
+        <div class="field"><label>Start R</label><input type="number" name="sr" min="0" max="255" value="{{ start[0] }}" required></div>
+        <div class="field"><label>Start G</label><input type="number" name="sg" min="0" max="255" value="{{ start[1] }}" required></div>
+        <div class="field"><label>Start B</label><input type="number" name="sb" min="0" max="255" value="{{ start[2] }}" required></div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>ADD_VALUE</label><input type="number" name="add" value="{{ add }}" required></div>
+        <div class="field"><label>SUB_VALUE</label><input type="number" name="sub" value="{{ sub }}" required></div>
+        <div class="field"><label>MAX_DEPTH</label><input type="number" name="depth" min="0" max="80" value="{{ depth }}" required></div>
+      </div>
+      <div class="actions"><button class="primary" type="submit">Save Settings</button></div>
+    </form>
+
+    <hr>
+
+    <div class="grid two">
+      <div>
+        <h2>Add permanent base preset</h2>
+        <p class="notice">This saves to the server JSON file so all users can see it.</p>
+        <form method="post" style="margin-top:12px">
+          <input type="hidden" name="action" value="Save Base Preset">
+          <div class="field"><label>Name</label><input type="text" name="preset_name" placeholder="e.g., Deep burgundy base" required></div>
+          <div class="form-grid" style="margin-top:12px">
+            <div class="field"><label>R</label><input type="number" name="r" min="0" max="255" required></div>
+            <div class="field"><label>G</label><input type="number" name="g" min="0" max="255" required></div>
+            <div class="field"><label>B</label><input type="number" name="b" min="0" max="255" required></div>
+          </div>
+          <div class="actions"><button class="primary" type="submit">Save Base Preset</button></div>
+        </form>
+      </div>
+
+      <div>
+        <h2>Saved base presets</h2>
+        {% if custom_presets %}
+          <div class="table-list">
+          {% for p in custom_presets %}
+            <div class="item">
+              <span class="swatch" style="background:rgb({{ p.rgb[0] }},{{ p.rgb[1] }},{{ p.rgb[2] }})"></span>
+              <span class="item-main"><strong>{{ p.name }}</strong><small>{{ p.rgb[0] }}, {{ p.rgb[1] }}, {{ p.rgb[2] }}</small></span>
+              <form method="post" action="{{ url_for('delete_hair_preset', preset_id=p.id) }}">
+                <button class="btn danger" type="submit">Delete</button>
+              </form>
+            </div>
+          {% endfor %}
+          </div>
+        {% else %}
+          <p class="notice">No base presets yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+# ---------- ROUTES ----------
+@app.route("/", methods=["GET", "POST"])
+def home():
+    settings = get_settings()
+    result = None
+    form_rgb = rgb_tuple(request.args.get("rgb", settings["START_RGB"]), settings["START_RGB"])
+
+    if request.method == "POST":
+        action = request.form.get("action", "Find Sequence")
+        try:
+            target = (
+                clamp255(request.form.get("r", 0)),
+                clamp255(request.form.get("g", 0)),
+                clamp255(request.form.get("b", 0))
+            )
+        except Exception:
+            target = (0, 0, 0)
+
+        form_rgb = target
+
+        if action == "Save Base Preset":
+            name = request.form.get("preset_name") or f"Custom {rgb_to_hex(target)}"
+            add_custom_hair_preset(name, target)
+            return redirect(url_for("home"))
+
+        result = make_result(target, settings)
+
+        hist = session.get("history", [])
+        hist.append({
+            "sequence": result["sequence"],
+            "final_mask": list(result["final_mask"]),
+            "final_color": list(result["final_color"]),
+            "target": list(result["target"]),
+            "diff": result["diff"],
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M")
+        })
+        session["history"] = hist[-20:]
+        session["current"] = result
+
+        if action == "Save Result":
+            saved = session.get("saved", [])
+            saved.append({
+                "sequence": result["sequence"],
+                "final_mask": list(result["final_mask"]),
+                "final_color": list(result["final_color"]),
+                "target": list(result["target"]),
+                "diff": result["diff"],
+                "ts": datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            session["saved"] = saved
+
+    result = result or session.get("current")
+    ctx = {
+        "base_css": BASE_CSS,
+        "result": result,
+        "start_rgb": list(settings["START_RGB"]),
+        "start_hex": rgb_to_hex(settings["START_RGB"]),
+        "add_value": settings["ADD_VALUE"],
+        "sub_value": settings["SUB_VALUE"],
+        "max_depth": settings["MAX_DEPTH"],
+        "form_rgb": list(form_rgb),
+        "form_hex": rgb_to_hex(form_rgb),
+        "hair_presets": all_hair_presets()
+    }
+    return render_template_string(MAIN_HTML, **ctx)
+
+
+@app.route("/saved", methods=["GET"])
+def saved():
+    items = list(enumerate(session.get("saved", [])))
+    return render_template_string(
+        LIST_HTML,
+        base_css=BASE_CSS,
+        title="Saved",
+        subtitle="Saved results are per user/session.",
+        items=items[::-1],
+        allow_delete=True
+    )
+
+
+@app.route("/delete/<int:idx>", methods=["POST"])
+def delete_saved(idx):
+    items = session.get("saved", [])
+    if 0 <= idx < len(items):
+        items.pop(idx)
+    session["saved"] = items
+    return redirect(url_for("saved"))
+
+
+@app.route("/history", methods=["GET"])
+def history():
+    q = request.args.get("q", "").strip()
+    items = session.get("history", [])
+    if q:
+        items = [it for it in items if q in str(it.get("target", "")) or q.lower() in str(it.get("sequence", "")).lower()]
+    return render_template_string(
+        LIST_HTML,
+        base_css=BASE_CSS,
+        title="History",
+        subtitle="Last 20 searches, newest first.",
+        items=list(enumerate(items))[::-1],
+        allow_delete=False
+    )
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    if request.method == "POST":
+        action = request.form.get("action", "")
+
+        if action == "Save Settings":
+            save_settings(
+                (request.form.get("sr"), request.form.get("sg"), request.form.get("sb")),
+                request.form.get("add", DEFAULT_SETTINGS["ADD_VALUE"]),
+                request.form.get("sub", DEFAULT_SETTINGS["SUB_VALUE"]),
+                request.form.get("depth", DEFAULT_SETTINGS["MAX_DEPTH"])
+            )
+            _find_sequence_cached.cache_clear()
+            return redirect(url_for("home"))
+
+        if action == "Save Base Preset":
+            target = (
+                clamp255(request.form.get("r", 0)),
+                clamp255(request.form.get("g", 0)),
+                clamp255(request.form.get("b", 0))
+            )
+            add_custom_hair_preset(request.form.get("preset_name"), target)
+            return redirect(url_for("settings"))
+
+    current = get_settings()
+    return render_template_string(
+        SETTINGS_HTML,
+        base_css=BASE_CSS,
+        start=list(current["START_RGB"]),
+        add=current["ADD_VALUE"],
+        sub=current["SUB_VALUE"],
+        depth=current["MAX_DEPTH"],
+        custom_presets=load_custom_hair_presets()
+    )
+
+
+@app.route("/hair-presets/delete/<preset_id>", methods=["POST"])
+def delete_hair_preset(preset_id):
+    delete_custom_hair_preset(preset_id)
+    return redirect(url_for("settings"))
+
+
+@app.route("/api/hair-presets", methods=["GET"])
+def api_hair_presets():
+    return jsonify(all_hair_presets())
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return redirect(url_for("static", filename="favicon.png"))
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
