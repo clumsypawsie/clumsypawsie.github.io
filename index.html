@@ -4,969 +4,459 @@
   <meta charset="utf-8" />
   <title>Dye Doxxer (Static)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#0f1020" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.png">
   <style>
     :root{
-      --bg:#080a12;
-      --panel:rgba(12,14,24,.68);
-      --panel-strong:rgba(7,9,16,.78);
-      --panel-soft:rgba(255,255,255,.08);
-      --line:rgba(255,255,255,.17);
-      --line-strong:rgba(255,255,255,.28);
-      --text:#fff8ff;
-      --muted:rgba(255,248,255,.72);
+      --panel:rgba(0,0,0,.58);
+      --panel2:rgba(0,0,0,.38);
+      --line:rgba(255,255,255,.20);
+      --text:#fff;
+      --muted:rgba(255,255,255,.75);
       --accent:#d7b7ff;
-      --accent-2:#8ef6d1;
-      --danger:#ff8f8f;
-      --gold:#ffe082;
-      --radius:22px;
-      --shadow:0 18px 60px rgba(0,0,0,.42);
+      --accent2:#8ef6d1;
+      --danger:#ff9a9a;
+      --radius:18px;
     }
-
     *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
     html,body{margin:0;padding:0;min-height:100%}
     body{
       font-family:'Rubik',system-ui,-apple-system,Segoe UI,sans-serif;
       color:var(--text);
       background:
-        linear-gradient(135deg,rgba(8,10,18,.46),rgba(6,8,14,.72)),
+        linear-gradient(135deg,rgba(0,0,0,.25),rgba(0,0,0,.55)),
         url('background.png') center/cover fixed no-repeat,
-        radial-gradient(circle at top left,rgba(215,183,255,.18),transparent 32%),
-        #111;
-      text-shadow:0 1px 1px rgba(0,0,0,.42);
+        #101820;
+      text-shadow:0 1px 1px rgba(0,0,0,.7);
       overflow-x:hidden;
     }
     body::before{
       content:"";
       position:fixed;
-      inset:-18%;
+      inset:-20%;
       pointer-events:none;
       z-index:-1;
       background:
-        radial-gradient(circle at 14% 24%,rgba(215,183,255,.17),transparent 20%),
-        radial-gradient(circle at 82% 72%,rgba(142,246,209,.13),transparent 24%);
+        radial-gradient(circle at 16% 25%,rgba(215,183,255,.20),transparent 22%),
+        radial-gradient(circle at 84% 76%,rgba(142,246,209,.14),transparent 26%);
       animation:floatGlow 10s ease-in-out infinite;
     }
-    body.is-searching{cursor:progress}
-    a{color:var(--text)}
-    button,input{font:inherit}
-    button,input[type=submit]{-webkit-tap-highlight-color:transparent}
-
-    .page{
-      width:min(1180px,calc(100% - 28px));
-      margin:22px auto 48px;
-      animation:fadeLift .55s ease both;
-    }
-    .app-shell{
-      display:grid;
-      grid-template-columns:220px 1fr;
-      gap:18px;
-      align-items:start;
-    }
-    .sidebar,.card{
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      backdrop-filter:blur(18px);
-      -webkit-backdrop-filter:blur(18px);
-      position:relative;
-      overflow:hidden;
-    }
-    .sidebar{padding:16px;position:sticky;top:16px;animation:fadeLift .45s ease both}
-    .brand{padding:8px 8px 16px}
-    .brand h1{font-size:30px;line-height:.95;margin:0 0 8px;letter-spacing:-1px;animation:softGlow 4.5s ease-in-out infinite}
-    .brand p{margin:0;color:var(--muted);font-size:13px;line-height:1.35}
-    .tabs{display:grid;gap:9px}
-    .tab-btn{
-      width:100%;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      padding:12px 13px;
-      border-radius:16px;
-      border:1px solid var(--line);
-      background:rgba(255,255,255,.07);
-      color:var(--text);
-      cursor:pointer;
-      transition:transform .16s ease,background .16s ease,border-color .16s ease;
-    }
-    .tab-btn:hover,.tab-btn.active{transform:translateY(-1px);background:rgba(255,255,255,.14);border-color:rgba(215,183,255,.45)}
-    .tab-btn small{color:var(--muted);font-size:12px}
-    .main{display:grid;gap:18px;min-width:0}
-    .card{padding:22px;animation:fadeLift .55s ease both}
-    .card:nth-child(2){animation-delay:.04s}
-    .card::after{
-      content:"";
-      position:absolute;
-      inset:0;
-      pointer-events:none;
-      background:linear-gradient(100deg,transparent 0%,rgba(255,255,255,.08) 42%,transparent 70%);
-      transform:translateX(-120%) rotate(10deg);
-      opacity:.55;
-    }
-    .card:hover::after{animation:sweep .85s ease}
-    .hidden{display:none!important}
-
-    .top-grid{display:grid;grid-template-columns:1.08fr .92fr;gap:18px;align-items:stretch}
-    h2{font-size:clamp(28px,4vw,48px);letter-spacing:-1.3px;line-height:.95;margin:0}
-    h3{font-size:21px;margin:0 0 12px}
-    .sub{color:var(--muted);line-height:1.45;margin:12px 0 0}
-    .section-head{display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:14px}
-    .dye-icons{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
-    .dye-icons img{
-      width:72px;height:72px;object-fit:contain;
-      filter:drop-shadow(0 10px 18px rgba(0,0,0,.35));
-      transition:transform .18s ease,filter .18s ease;
-    }
-    .dye-icons img:hover{transform:translateY(-4px) scale(1.06);filter:drop-shadow(0 16px 28px rgba(0,0,0,.45))}
-
-    .status-card{display:grid;gap:14px}
-    .base-preview{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:20px;padding:14px}
-    .swatch{
-      display:inline-block;
-      width:54px;height:54px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.58);
-      box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 10px 25px rgba(0,0,0,.28);
-      vertical-align:middle;
-      transition:transform .16s ease,box-shadow .16s ease;
-      flex:0 0 auto;
-    }
-    .swatch:hover{transform:scale(1.05);box-shadow:0 14px 30px rgba(0,0,0,.35)}
-    .swatch.large{width:88px;height:88px;border-radius:23px}
-    .muted{color:var(--muted)}
-    .tiny{font-size:12px;color:var(--muted)}
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:7px;
-      border:1px solid var(--line);
-      border-radius:999px;
-      background:rgba(255,255,255,.08);
-      padding:7px 10px;
-      font-size:13px;
-      color:var(--muted);
-    }
-    .pill strong{color:var(--text)}
-
-    form{margin:0}
-    .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-    .field label{display:block;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0 0 7px}
-    input[type=number],input[type=text],input[type=color],select{
-      width:100%;
-      color:var(--text);
-      background:rgba(0,0,0,.28);
-      border:1px solid var(--line);
-      border-radius:15px;
-      outline:none;
-      padding:13px 14px;
-      transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
-    }
-    input[type=color]{height:50px;padding:5px;cursor:pointer}
-    input:focus,select:focus{border-color:rgba(215,183,255,.75);box-shadow:0 0 0 4px rgba(215,183,255,.13);background:rgba(0,0,0,.34)}
-    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-    .btn,button,input[type=submit]{
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:12px 16px;
-      background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.07));
-      color:var(--text);
-      cursor:pointer;
-      transition:transform .14s ease,background .14s ease,border-color .14s ease,opacity .14s ease;
-    }
-    .btn:hover,button:hover,input[type=submit]:hover{transform:translateY(-2px);background:rgba(255,255,255,.15);border-color:rgba(215,183,255,.45)}
-    .btn:active,button:active,input[type=submit]:active{transform:translateY(0)}
-    .btn.primary,input.primary{border-color:rgba(215,183,255,.55);background:linear-gradient(135deg,rgba(215,183,255,.28),rgba(142,246,209,.14))}
-    .btn.danger{border-color:rgba(255,143,143,.35);color:#ffdada}
-    .btn.small{font-size:14px;padding:8px 11px;border-radius:12px}
-    button:disabled,.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
-
-    .preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:12px}
-    .preset-card{
-      width:100%;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      text-align:left;
-      padding:10px;
-      border:1px solid var(--line);
-      border-radius:18px;
-      background:rgba(255,255,255,.07);
-      transition:transform .16s ease,border-color .16s ease,background .16s ease;
-    }
-    .preset-card:hover{transform:translateY(-2px) scale(1.01);border-color:rgba(142,246,209,.42);background:rgba(255,255,255,.12)}
-    .preset-card .mini{width:36px;height:36px;border-radius:11px;border:1px solid rgba(255,255,255,.55);flex:0 0 auto}
-    .preset-card strong{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .preset-card small{display:block;color:var(--muted);font-size:12px}
-    .empty{border:1px dashed rgba(255,255,255,.26);border-radius:18px;padding:16px;color:var(--muted);background:rgba(0,0,0,.16)}
-
-    .result-grid{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
-    .sequence{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-    .seq-token{
-      --chip:#fff;
-      display:inline-flex;
-      gap:6px;
-      align-items:center;
-      padding:9px 12px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.17);
-      background:linear-gradient(180deg,color-mix(in srgb,var(--chip) 30%,transparent),rgba(255,255,255,.07));
-      color:#fff;
-      text-shadow:0 1px 1px rgba(0,0,0,.62);
-      animation:chipPop .28s ease both;
-    }
-    .stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
-    .stat{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:18px;padding:14px;min-width:0}
-    .stat span{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
-    .stat strong{font-size:19px;word-break:break-word}
-    .compare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-    .compare-box{border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:18px;padding:12px;text-align:center}
-    .compare-box .swatch{margin:auto auto 8px}
-    canvas#visual{width:100%;height:118px;border:1px solid rgba(255,255,255,.48);border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,.32)}
-    .loader{display:none;color:var(--muted);margin-top:12px}
-    body.is-searching .loader{display:block}
-    .loader::after{content:"";display:inline-block;width:34px;height:2px;margin-left:8px;border-radius:999px;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:200% 100%;animation:borderFlow .75s linear infinite}
-
-    .list{display:grid;gap:12px;margin-top:14px}
-    .list-item{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);background:rgba(255,255,255,.07);border-radius:18px;padding:12px}
-    .list-item .item-main{min-width:0}.item-main strong{display:block}.item-main small{color:var(--muted)}
-    .filter-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
-    hr{border:0;border-top:1px solid var(--line);margin:18px 0}
-    .toast{position:fixed;right:18px;bottom:18px;background:rgba(8,10,18,.86);border:1px solid var(--line-strong);box-shadow:0 14px 36px rgba(0,0,0,.35);border-radius:16px;padding:13px 15px;z-index:10;opacity:0;transform:translateY(12px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}
-    .toast.show{opacity:1;transform:translateY(0)}
-
-    @keyframes fadeLift{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes sweep{0%{transform:translateX(-120%) rotate(10deg)}100%{transform:translateX(160%) rotate(10deg)}}
-    @keyframes chipPop{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes softGlow{0%,100%{filter:drop-shadow(0 0 0 rgba(215,183,255,0))}50%{filter:drop-shadow(0 0 18px rgba(215,183,255,.28))}}
-    @keyframes floatGlow{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
-    @keyframes borderFlow{0%{background-position:0% 50%}100%{background-position:200% 50%}}
-    @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-    @media (max-width:920px){
-      .app-shell{grid-template-columns:1fr}.sidebar{position:relative;top:0}.tabs{grid-template-columns:repeat(4,1fr)}.tab-btn{justify-content:center}.tab-btn small{display:none}.top-grid,.result-grid{grid-template-columns:1fr}
-    }
-    @media (max-width:640px){
-      .page{width:min(100% - 18px,1180px);margin-top:9px}.card,.sidebar{padding:15px;border-radius:18px}.tabs{grid-template-columns:repeat(2,1fr)}.form-grid,.stat-grid,.compare,.filter-row{grid-template-columns:1fr}.dye-icons img{width:58px;height:58px}h2{font-size:34px}.list-item{grid-template-columns:1fr}.actions .btn,.actions button,.actions input[type=submit]{width:100%;justify-content:center}.preset-grid{grid-template-columns:1fr}
-    }
+    .wrap{width:min(1100px,calc(100% - 28px));margin:28px auto 48px;animation:fadeUp .45s ease both}
+    .shell{background:var(--panel);border:1px solid var(--line);border-radius:26px;box-shadow:0 18px 60px rgba(0,0,0,.42);backdrop-filter:blur(14px);padding:22px;overflow:hidden;position:relative}
+    .shell::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 0%,rgba(255,255,255,.07) 45%,transparent 72%);transform:translateX(-130%) rotate(10deg)}
+    .shell:hover::after{animation:sweep .9s ease}
+    .tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+    .tab{font-size:20px;padding:11px 18px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.10);color:#fff;cursor:pointer;transition:transform .16s ease,background .16s ease,border-color .16s ease}
+    .tab:hover,.tab.active{transform:translateY(-2px);background:rgba(255,255,255,.18);border-color:rgba(215,183,255,.55)}
+    h1{font-size:42px;margin:0 0 8px;letter-spacing:-1px;animation:softGlow 4s ease-in-out infinite}
+    h2{font-size:28px;margin:0 0 12px}
+    h3{font-size:22px;margin:0 0 12px}
+    p{line-height:1.45}.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.section{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-top:16px;animation:fadeUp .35s ease both}
+    .dye-icons{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px}.dye-icons img{width:76px;height:76px;object-fit:contain;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45));transition:transform .16s ease}.dye-icons img:hover{transform:translateY(-4px) scale(1.07)}
+    label{display:block;font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:7px}
+    input[type=number],input[type=text],input[type=color]{width:100%;font-size:19px;padding:12px 13px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.42);color:#fff;outline:none}
+    input[type=color]{height:50px;padding:5px;cursor:pointer}input:focus{border-color:rgba(215,183,255,.75);box-shadow:0 0 0 4px rgba(215,183,255,.13)}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}button,.btn{font-size:19px;padding:10px 16px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.10);color:#fff;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease}button:hover,.btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.17);border-color:rgba(215,183,255,.5)}button:disabled{opacity:.45;cursor:not-allowed;transform:none}.primary{background:linear-gradient(135deg,rgba(215,183,255,.30),rgba(142,246,209,.14));border-color:rgba(215,183,255,.55)}.danger{color:#ffd6d6;border-color:rgba(255,154,154,.42)}
+    .swatch{display:inline-block;width:54px;height:54px;border:1px solid rgba(255,255,255,.75);border-radius:14px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18),0 8px 22px rgba(0,0,0,.35);vertical-align:middle}.swatch.big{width:82px;height:82px;border-radius:20px}
+    .base-box{display:flex;gap:14px;align-items:center}.pill{display:inline-flex;gap:8px;align-items:center;padding:8px 11px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.08)}
+    .hidden{display:none!important}.sequence{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.seq-token{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.10);animation:chipPop .25s ease both}.seq-red{color:#ff6961}.seq-green{color:#77dd77}.seq-blue{color:#72a7ff}.seq-black{color:#e6e6e6}
+    .result-grid{display:grid;grid-template-columns:1fr 330px;gap:18px}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.stat{background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:14px;padding:12px}.stat small{display:block;color:var(--muted);margin-bottom:5px}.compare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;text-align:center}.compare .swatch{margin:auto auto 7px}#visual{width:100%;height:110px;border:2px solid rgba(255,255,255,.6);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+    .preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}.preset-card{display:flex;align-items:center;gap:10px;text-align:left;width:100%;padding:10px;border-radius:14px}.preset-card .mini{width:34px;height:34px;border-radius:10px;border:1px solid #fff;flex:0 0 auto}.preset-card strong{display:block;font-size:15px}.preset-card small{color:var(--muted)}
+    .list{display:grid;gap:12px}.item{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:14px;padding:12px}.item-main{min-width:0}.item-main strong{display:block}.item-main small{color:var(--muted)}.empty{border:1px dashed rgba(255,255,255,.30);border-radius:14px;padding:15px;color:var(--muted)}
+    .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,.78);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 12px 34px rgba(0,0,0,.35);opacity:0;transform:translateY(10px);transition:.18s;pointer-events:none}.toast.show{opacity:1;transform:translateY(0)}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}@keyframes chipPop{from{opacity:0;transform:scale(.92) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}@keyframes sweep{to{transform:translateX(150%) rotate(10deg)}}@keyframes softGlow{50%{filter:drop-shadow(0 0 16px rgba(215,183,255,.35))}}@keyframes floatGlow{50%{transform:translateY(-12px)}}
+    @media(max-width:850px){.grid,.grid-3,.result-grid,.stats{grid-template-columns:1fr}.wrap{width:calc(100% - 16px);margin-top:8px}.shell{padding:15px}.tab{font-size:17px;flex:1}.item{grid-template-columns:1fr}.actions button{width:100%}h1{font-size:34px}}
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <h1>Dye Doxxer</h1>
-          <p>Static GitHub Pages version. Presets save in this browser.</p>
-        </div>
-        <nav class="tabs" aria-label="Main navigation">
-          <button class="tab-btn active" id="tab-home" type="button">Finder <small>RGB</small></button>
-          <button class="tab-btn" id="tab-saved" type="button">Saved <small id="saved-count">0</small></button>
-          <button class="tab-btn" id="tab-history" type="button">History <small id="history-count">0</small></button>
-          <button class="tab-btn" id="tab-settings" type="button">Settings <small>Base</small></button>
-        </nav>
-      </aside>
+  <div class="wrap">
+    <div class="shell">
+      <div class="tabs">
+        <button class="tab active" id="tab-finder" type="button">Finder</button>
+        <button class="tab" id="tab-saved" type="button">Saved <span id="saved-count">0</span></button>
+        <button class="tab" id="tab-history" type="button">History <span id="history-count">0</span></button>
+        <button class="tab" id="tab-settings" type="button">Settings</button>
+      </div>
 
-      <main class="main">
-        <section id="view-home">
-          <div class="top-grid">
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>Find a dye sequence</h2>
-                  <p class="sub">Pick a target color, then find the closest red, green, blue, and black dye path.</p>
-                </div>
-              </div>
-              <div class="dye-icons" aria-label="Dye icons">
-                <img src="dye_red.png" alt="Red dye" onerror="this.style.display='none'">
-                <img src="dye_green.png" alt="Green dye" onerror="this.style.display='none'">
-                <img src="dye_blue.png" alt="Blue dye" onerror="this.style.display='none'">
-                <img src="dye_black.png" alt="Black dye" onerror="this.style.display='none'">
-              </div>
-            </div>
-
-            <div class="card status-card">
-              <h3>Current base</h3>
-              <div class="base-preview">
-                <span class="swatch large" id="base-swatch"></span>
-                <div>
-                  <strong id="base-text">Base pixel</strong>
-                  <p class="muted" id="base-subtext" style="margin:5px 0 0"></p>
-                </div>
-              </div>
-              <div class="actions" style="margin-top:0">
-                <button class="btn small" type="button" id="save-current-base">Save current base preset</button>
-                <button class="btn small" type="button" id="reset-settings">Reset settings</button>
-              </div>
+      <section id="view-finder">
+        <div class="grid">
+          <div>
+            <h1>Dye Doxxer</h1>
+            <p class="muted">GitHub Pages version. Finder, saved results, history, and custom base presets all work in your browser.</p>
+            <div class="dye-icons">
+              <img src="dye_red.png" alt="Red dye" onerror="this.style.display='none'">
+              <img src="dye_green.png" alt="Green dye" onerror="this.style.display='none'">
+              <img src="dye_blue.png" alt="Blue dye" onerror="this.style.display='none'">
+              <img src="dye_black.png" alt="Black dye" onerror="this.style.display='none'">
             </div>
           </div>
-
-          <div class="card">
-            <form id="finder-form">
-              <div class="section-head">
-                <div>
-                  <h3>Target color</h3>
-                  <p class="sub" style="margin-top:6px">Use RGB boxes or the color picker. They stay synced.</p>
-                </div>
-                <span class="pill"><span class="swatch" id="target-live-swatch" style="width:22px;height:22px;border-radius:7px"></span><strong id="target-hex-label">#000000</strong></span>
-              </div>
-              <div class="form-grid">
-                <div class="field"><label for="r">Target R</label><input type="number" id="r" name="r" min="0" max="255" required value="241"></div>
-                <div class="field"><label for="g">Target G</label><input type="number" id="g" name="g" min="0" max="255" required value="219"></div>
-                <div class="field"><label for="b">Target B</label><input type="number" id="b" name="b" min="0" max="255" required value="29"></div>
-              </div>
-              <div class="form-grid" style="margin-top:12px">
-                <div class="field"><label for="target-color">Color picker</label><input type="color" id="target-color" value="#f1db1d"></div>
-                <div class="field" style="grid-column:span 2"><label for="preset-name">Preset name when saving target</label><input type="text" id="preset-name" maxlength="40" placeholder="e.g., My custom base"></div>
-              </div>
-              <div class="actions">
-                <input type="submit" class="primary" value="Find Sequence">
-                <button type="button" id="btn-save" disabled>Save Result</button>
-                <button type="button" id="save-target-preset">Save Target as Base Preset</button>
-                <button type="button" id="copy-target">Copy RGB</button>
-              </div>
-              <div class="loader">Searching closest sequence</div>
-            </form>
-          </div>
-
-          <div class="card">
-            <div class="section-head">
+          <div class="section" style="margin-top:0">
+            <h3>Current base</h3>
+            <div class="base-box">
+              <span class="swatch big" id="base-swatch"></span>
               <div>
-                <h3>Base presets</h3>
-                <p class="sub" style="margin-top:6px">Only presets you save appear here. These are stored in localStorage, so they work on GitHub Pages.</p>
+                <strong id="base-text"></strong>
+                <p class="muted" id="base-details" style="margin:5px 0 0"></p>
               </div>
-            </div>
-            <div id="preset-list" class="preset-grid"></div>
-          </div>
-
-          <div id="result-card" class="card hidden">
-            <div class="section-head">
-              <div>
-                <h3>Result</h3>
-                <p class="sub" id="result-summary" style="margin-top:6px"></p>
-              </div>
-              <div class="actions" style="margin-top:0">
-                <button type="button" class="btn small" id="copy-sequence">Copy sequence</button>
-              </div>
-            </div>
-            <div class="result-grid">
-              <div>
-                <div class="muted">Sequence</div>
-                <div class="sequence" id="seq-html"></div>
-                <div class="stat-grid">
-                  <div class="stat"><span>Final Color</span><strong id="final-color-text"></strong></div>
-                  <div class="stat"><span>Target</span><strong id="target-text"></strong></div>
-                  <div class="stat"><span>Final Mask</span><strong id="final-mask-text"></strong></div>
-                  <div class="stat"><span>Difference</span><strong id="diff-text"></strong></div>
-                </div>
-              </div>
-              <div>
-                <div class="compare">
-                  <div class="compare-box"><span class="swatch large" id="target-swatch"></span><p>Target</p></div>
-                  <div class="compare-box"><span class="swatch large" id="final-color-swatch"></span><p>Final</p></div>
-                </div>
-                <button type="button" id="play" style="width:100%;margin-bottom:10px">Play Sequence</button>
-                <canvas id="visual" width="360" height="118"></canvas>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="view-saved" class="hidden card">
-          <div class="section-head">
-            <div><h2>Saved results</h2><p class="sub">Saved searches stay in this browser.</p></div>
-            <button type="button" class="btn danger small" id="clear-saved">Clear saved</button>
-          </div>
-          <div id="saved-list" class="list"></div>
-        </section>
-
-        <section id="view-history" class="hidden card">
-          <div class="section-head">
-            <div><h2>History</h2><p class="sub">Newest searches first.</p></div>
-            <button type="button" class="btn danger small" id="clear-history">Clear history</button>
-          </div>
-          <div class="filter-row">
-            <div class="field"><label for="hist-filter">Filter target or sequence</label><input type="text" id="hist-filter" placeholder="e.g. 241,219,29 or red"></div>
-            <button type="button" class="btn" id="history-back">Back to Finder</button>
-          </div>
-          <div id="history-list" class="list"></div>
-        </section>
-
-        <section id="view-settings" class="hidden card">
-          <div class="section-head">
-            <div><h2>Settings</h2><p class="sub">Settings and custom presets save locally, so this works on GitHub Pages.</p></div>
-          </div>
-          <form id="settings-form">
-            <h3>Base pixel and search</h3>
-            <div class="form-grid">
-              <div class="field"><label for="sr">Start R</label><input type="number" id="sr" min="0" max="255" required></div>
-              <div class="field"><label for="sg">Start G</label><input type="number" id="sg" min="0" max="255" required></div>
-              <div class="field"><label for="sb">Start B</label><input type="number" id="sb" min="0" max="255" required></div>
-            </div>
-            <div class="form-grid" style="margin-top:12px">
-              <div class="field"><label for="base-color">Base color picker</label><input type="color" id="base-color" value="#f1db1d"></div>
-              <div class="field"><label for="add">ADD_VALUE (+)</label><input type="number" id="add" required></div>
-              <div class="field"><label for="sub">SUB_VALUE (-)</label><input type="number" id="sub" required></div>
-            </div>
-            <div class="form-grid" style="margin-top:12px">
-              <div class="field"><label for="depth">Search MAX_DEPTH</label><input type="number" id="depth" min="0" max="80" required></div>
-              <div class="field" style="grid-column:span 2"><label for="settings-preset-name">Preset name for current base</label><input type="text" id="settings-preset-name" maxlength="40" placeholder="e.g., Deep burgundy base"></div>
             </div>
             <div class="actions">
-              <button type="submit" class="primary">Save Settings</button>
-              <button type="button" id="save-settings-base">Save Current Base Preset</button>
-              <button type="button" id="back-home-settings">Back to Finder</button>
+              <button type="button" id="save-current-base">Save current base preset</button>
+              <button type="button" id="reset-settings">Reset settings</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+            <div><h2>Target color</h2><p class="muted" style="margin:0">Enter RGB or use the color picker.</p></div>
+            <span class="pill"><span class="swatch" id="target-live-swatch" style="width:24px;height:24px;border-radius:7px"></span><strong id="target-hex">#000000</strong></span>
+          </div>
+          <form id="finder-form">
+            <div class="grid-3" style="margin-top:14px">
+              <div><label for="r">Target R</label><input id="r" name="r" type="number" min="0" max="255" value="241" required></div>
+              <div><label for="g">Target G</label><input id="g" name="g" type="number" min="0" max="255" value="219" required></div>
+              <div><label for="b">Target B</label><input id="b" name="b" type="number" min="0" max="255" value="29" required></div>
+            </div>
+            <div class="grid" style="margin-top:12px">
+              <div><label for="target-color">Color picker</label><input id="target-color" type="color" value="#f1db1d"></div>
+              <div><label for="preset-name">Preset name when saving target</label><input id="preset-name" type="text" maxlength="40" placeholder="e.g., Dark orange base"></div>
+            </div>
+            <div class="actions">
+              <button class="primary" type="submit" id="find-btn">Find Sequence</button>
+              <button type="button" id="save-result" disabled>Save Result</button>
+              <button type="button" id="save-target-preset">Save Target as Base Preset</button>
+              <button type="button" id="copy-target">Copy RGB</button>
             </div>
           </form>
-          <hr>
-          <div class="section-head">
-            <div><h3>Manage base presets</h3><p class="sub" style="margin-top:6px">No built-in presets. Only what you make.</p></div>
+        </div>
+
+        <div class="section">
+          <h2>Base presets</h2>
+          <p class="muted" style="margin-top:0">No built-in presets. Only what the user saves appears here.</p>
+          <div id="preset-list" class="preset-grid"></div>
+        </div>
+
+        <div class="section hidden" id="result-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+            <div><h2>Result</h2><p class="muted" id="result-summary" style="margin:0"></p></div>
+            <button type="button" id="copy-sequence">Copy Sequence</button>
           </div>
-          <div id="settings-preset-list" class="list"></div>
-        </section>
-      </main>
+          <div class="result-grid" style="margin-top:14px">
+            <div>
+              <div class="muted">Sequence</div>
+              <div class="sequence" id="seq-html"></div>
+              <div class="stats">
+                <div class="stat"><small>Final Color</small><strong id="final-color-text"></strong></div>
+                <div class="stat"><small>Target</small><strong id="target-text"></strong></div>
+                <div class="stat"><small>Final Mask</small><strong id="final-mask-text"></strong></div>
+                <div class="stat"><small>Difference</small><strong id="diff-text"></strong></div>
+              </div>
+            </div>
+            <div>
+              <div class="compare">
+                <div><span class="swatch big" id="target-swatch"></span><p class="muted">Target</p></div>
+                <div><span class="swatch big" id="final-swatch"></span><p class="muted">Final</p></div>
+              </div>
+              <button type="button" id="play" style="width:100%;margin-bottom:10px">Play Sequence</button>
+              <canvas id="visual" width="360" height="110"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-saved" class="hidden">
+        <h1>Saved</h1>
+        <div class="actions"><button class="danger" type="button" id="clear-saved">Clear saved</button></div>
+        <div class="section"><div class="list" id="saved-list"></div></div>
+      </section>
+
+      <section id="view-history" class="hidden">
+        <h1>History</h1>
+        <div class="grid" style="margin-top:14px">
+          <div><label for="hist-filter">Filter target or sequence</label><input id="hist-filter" type="text" placeholder="e.g., 241,219,29 or red"></div>
+          <div class="actions" style="align-items:end"><button class="danger" type="button" id="clear-history">Clear history</button></div>
+        </div>
+        <div class="section"><div class="list" id="history-list"></div></div>
+      </section>
+
+      <section id="view-settings" class="hidden">
+        <h1>Settings</h1>
+        <p class="muted">These save in the browser, so they work on GitHub Pages.</p>
+        <form id="settings-form" class="section">
+          <h2>Base pixel and search</h2>
+          <div class="grid-3">
+            <div><label for="sr">Start R</label><input id="sr" type="number" min="0" max="255" required></div>
+            <div><label for="sg">Start G</label><input id="sg" type="number" min="0" max="255" required></div>
+            <div><label for="sb">Start B</label><input id="sb" type="number" min="0" max="255" required></div>
+          </div>
+          <div class="grid-3" style="margin-top:12px">
+            <div><label for="base-color">Base color picker</label><input id="base-color" type="color" value="#f1db1d"></div>
+            <div><label for="add">ADD_VALUE (+)</label><input id="add" type="number" required></div>
+            <div><label for="sub">SUB_VALUE (-)</label><input id="sub" type="number" required></div>
+          </div>
+          <div class="grid" style="margin-top:12px">
+            <div><label for="depth">Search MAX_DEPTH</label><input id="depth" type="number" min="0" max="80" required></div>
+            <div><label for="settings-preset-name">Preset name for current base</label><input id="settings-preset-name" type="text" maxlength="40" placeholder="e.g., My base"></div>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Save Settings</button>
+            <button type="button" id="save-settings-base">Save Current Base Preset</button>
+          </div>
+        </form>
+        <div class="section">
+          <h2>Manage base presets</h2>
+          <div class="list" id="settings-preset-list"></div>
+        </div>
+      </section>
     </div>
   </div>
 
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div class="toast" id="toast"></div>
 
   <script>
-  // ---------------------- Storage helpers ----------------------
-  const store = {
-    get(key, fallback){
-      try{
-        const v = localStorage.getItem(key);
-        return v ? JSON.parse(v) : structuredCloneSafe(fallback);
-      } catch(e){
-        return structuredCloneSafe(fallback);
-      }
-    },
-    set(key, val){ localStorage.setItem(key, JSON.stringify(val)); },
-    remove(key){ localStorage.removeItem(key); }
-  };
-  function structuredCloneSafe(v){ return JSON.parse(JSON.stringify(v)); }
+  document.addEventListener('DOMContentLoaded', function(){
+    var DEFAULTS = { START_RGB:[241,219,29], ADD_VALUE:32, SUB_VALUE:16, MAX_DEPTH:48 };
+    var KEYS = { cfg:'dyeDoxxer_cfg_v2', saved:'dyeDoxxer_saved_v2', history:'dyeDoxxer_history_v2', presets:'dyeDoxxer_basePresets_v2' };
+    var DYES = ['red','green','blue','black'];
+    var lastResult = null;
+    var playTimer = null;
 
-  // ---------------------- Defaults ----------------------
-  const DEFAULTS = {
-    START_RGB: [241, 219, 29],
-    ADD_VALUE: 32,
-    SUB_VALUE: 16,
-    MAX_DEPTH: 48
-  };
-  const STORAGE_KEYS = {
-    cfg:'cfg',
-    saved:'saved',
-    history:'history',
-    presets:'basePresets'
-  };
+    function el(id){ return document.getElementById(id); }
+    function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+    function load(key, fallback){ try{ var v = localStorage.getItem(key); return v ? JSON.parse(v) : clone(fallback); }catch(e){ return clone(fallback); } }
+    function save(key, value){ try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){} }
+    function clamp255(x){ x = Math.round(Number(x)); if(!isFinite(x)) x = 0; return Math.max(0, Math.min(255, x)); }
+    function clamp(x,min,max,fallback){ x = parseInt(x,10); if(!isFinite(x)) return fallback; return Math.max(min, Math.min(max, x)); }
+    function rgb(v, fallback){ fallback = fallback || [0,0,0]; return Array.isArray(v) && v.length === 3 ? [clamp255(v[0]),clamp255(v[1]),clamp255(v[2])] : fallback.slice(); }
+    function rgbText(v){ v = rgb(v); return '(' + v[0] + ', ' + v[1] + ', ' + v[2] + ')'; }
+    function rgbPlain(v){ v = rgb(v); return v[0] + ',' + v[1] + ',' + v[2]; }
+    function rgbToHex(v){ v = rgb(v); return '#' + v.map(function(n){ return n.toString(16).padStart(2,'0'); }).join(''); }
+    function hexToRgb(hex){ hex = String(hex || '').replace('#','').trim(); if(hex.length !== 6) return [0,0,0]; return [parseInt(hex.slice(0,2),16),parseInt(hex.slice(2,4),16),parseInt(hex.slice(4,6),16)].map(clamp255); }
+    function safeText(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+    function uid(){ return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2); }
 
-  const cfg = normalizeCfg(store.get(STORAGE_KEYS.cfg, DEFAULTS));
-  let historyItems = store.get(STORAGE_KEYS.history, []);
-  let savedItems = store.get(STORAGE_KEYS.saved, []);
-  let basePresets = store.get(STORAGE_KEYS.presets, []);
-  let searchCache = new Map();
-  let lastResult = null;
-  let playTimer = null;
+    var cfg = normalizeCfg(load(KEYS.cfg, DEFAULTS));
+    var savedItems = normalizeList(load(KEYS.saved, []));
+    var historyItems = normalizeList(load(KEYS.history, []));
+    var presets = normalizePresets(load(KEYS.presets, []));
 
-  function normalizeCfg(obj){
-    const src = obj || {};
-    return {
-      START_RGB: normalizeRGB(src.START_RGB, DEFAULTS.START_RGB),
-      ADD_VALUE: Number.isFinite(parseInt(src.ADD_VALUE,10)) ? parseInt(src.ADD_VALUE,10) : DEFAULTS.ADD_VALUE,
-      SUB_VALUE: Number.isFinite(parseInt(src.SUB_VALUE,10)) ? parseInt(src.SUB_VALUE,10) : DEFAULTS.SUB_VALUE,
-      MAX_DEPTH: clamp(parseInt(src.MAX_DEPTH,10), 0, 80, DEFAULTS.MAX_DEPTH)
-    };
-  }
-  function saveCfg(){ store.set(STORAGE_KEYS.cfg, cfg); updateCountsAndBase(); }
+    function normalizeCfg(o){ o = o || {}; return { START_RGB:rgb(o.START_RGB, DEFAULTS.START_RGB), ADD_VALUE:parseInt(o.ADD_VALUE,10) || DEFAULTS.ADD_VALUE, SUB_VALUE:parseInt(o.SUB_VALUE,10) || DEFAULTS.SUB_VALUE, MAX_DEPTH:clamp(o.MAX_DEPTH,0,80,DEFAULTS.MAX_DEPTH) }; }
+    function normalizeList(items){ return Array.isArray(items) ? items.filter(Boolean) : []; }
+    function normalizePresets(items){ if(!Array.isArray(items)) return []; return items.filter(function(p){ return p && p.rgb; }).map(function(p){ return { id:p.id || uid(), name:String(p.name || 'Custom base').slice(0,40), rgb:rgb(p.rgb), createdAt:p.createdAt || new Date().toISOString() }; }); }
+    function saveCfg(){ save(KEYS.cfg,cfg); updateBaseUI(); }
+    function saveSaved(){ save(KEYS.saved,savedItems); updateCounts(); }
+    function saveHistory(){ save(KEYS.history,historyItems); updateCounts(); }
+    function savePresets(){ save(KEYS.presets,presets); renderPresets(); }
 
-  // ---------------------- Math helpers ----------------------
-  const DYES = ['red','green','blue','black'];
-  const clamp255 = x => Math.max(0, Math.min(255, Math.round(Number(x) || 0)));
-  function clamp(x, min, max, fallback){
-    const n = parseInt(x, 10);
-    if(!Number.isFinite(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
-  }
-  function normalizeRGB(value, fallback=[0,0,0]){
-    if(Array.isArray(value) && value.length === 3) return value.map(clamp255);
-    return fallback.slice();
-  }
-  function rgbToHex(rgb){
-    const [r,g,b] = normalizeRGB(rgb);
-    return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
-  }
-  function hexToRgb(hex){
-    const raw = String(hex || '').replace('#','').trim();
-    if(raw.length !== 6) return [0,0,0];
-    return [parseInt(raw.slice(0,2),16), parseInt(raw.slice(2,4),16), parseInt(raw.slice(4,6),16)].map(clamp255);
-  }
-  function rgbText(rgb){ const [r,g,b] = normalizeRGB(rgb); return `(${r}, ${g}, ${b})`; }
-  function rgbPlain(rgb){ const [r,g,b] = normalizeRGB(rgb); return `${r},${g},${b}`; }
-  function dyeVector(dye, addVal, subVal){
-    if(dye === 'red') return [ addVal, -subVal, -subVal];
-    if(dye === 'green') return [-subVal,  addVal, -subVal];
-    if(dye === 'blue') return [-subVal, -subVal,  addVal];
-    if(dye === 'black') return [-32, -32, -32];
-    return [0,0,0];
-  }
-  function applyDyeToMask(mask, dye, addVal, subVal){
-    const dv = dyeVector(dye, addVal, subVal);
-    return [clamp255(mask[0] + dv[0]), clamp255(mask[1] + dv[1]), clamp255(mask[2] + dv[2])];
-  }
-  function applyMaskToColor(base, mask){
-    return [
-      clamp255(Math.round(base[0] * mask[0] / 255)),
-      clamp255(Math.round(base[1] * mask[1] / 255)),
-      clamp255(Math.round(base[2] * mask[2] / 255))
-    ];
-  }
-  function manhattan(a,b){ return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) + Math.abs(a[2]-b[2]); }
-  function nextFrame(){ return new Promise(resolve => setTimeout(resolve, 0)); }
+    function dyeVector(dye, addVal, subVal){
+      if(dye === 'red') return [ addVal, -subVal, -subVal];
+      if(dye === 'green') return [-subVal,  addVal, -subVal];
+      if(dye === 'blue') return [-subVal, -subVal,  addVal];
+      if(dye === 'black') return [-32, -32, -32];
+      return [0,0,0];
+    }
+    function applyDyeToMask(mask, dye){ var d = dyeVector(dye, cfg.ADD_VALUE, cfg.SUB_VALUE); return [clamp255(mask[0]+d[0]),clamp255(mask[1]+d[1]),clamp255(mask[2]+d[2])]; }
+    function applyMaskToColor(base, mask){ return [clamp255(Math.round(base[0]*mask[0]/255)),clamp255(Math.round(base[1]*mask[1]/255)),clamp255(Math.round(base[2]*mask[2]/255))]; }
+    function manhattan(a,b){ return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) + Math.abs(a[2]-b[2]); }
 
-  // ---------------------- Faster async BFS over masks ----------------------
-  async function findSequenceToTarget(target, opts={}){
-    const maxDepth = clamp(opts.maxDepth ?? cfg.MAX_DEPTH, 0, 80, DEFAULTS.MAX_DEPTH);
-    const base = normalizeRGB(opts.startRGB || cfg.START_RGB, cfg.START_RGB);
-    const addVal = parseInt(opts.addVal ?? cfg.ADD_VALUE, 10);
-    const subVal = parseInt(opts.subVal ?? cfg.SUB_VALUE, 10);
-    const cleanTarget = normalizeRGB(target);
-    const cacheKey = JSON.stringify({t:cleanTarget,b:base,a:addVal,s:subVal,d:maxDepth});
-    if(searchCache.has(cacheKey)) return structuredCloneSafe(searchCache.get(cacheKey));
-
-    const startMask = [255,255,255];
-    const startColor = applyMaskToColor(base, startMask);
-    const queue = [{mask:startMask, seq:[]}];
-    const visited = new Set([startMask.toString()]);
-    let head = 0;
-    let bestMask = startMask.slice();
-    let bestSeq = [];
-    let bestColor = startColor.slice();
-    let bestDiff = manhattan(bestColor, cleanTarget);
-    let statesChecked = 0;
-
-    while(head < queue.length){
-      const node = queue[head++];
-      const {mask, seq} = node;
-      statesChecked++;
-
-      const color = applyMaskToColor(base, mask);
-      const diff = manhattan(color, cleanTarget);
-      if(diff < bestDiff){
-        bestDiff = diff;
-        bestMask = mask.slice();
-        bestSeq = seq.slice();
-        bestColor = color.slice();
-        if(bestDiff === 0) break;
-      }
-
-      if(seq.length < maxDepth){
-        for(const dye of DYES){
-          const nxt = applyDyeToMask(mask, dye, addVal, subVal);
-          const key = nxt.toString();
-          if(!visited.has(key)){
-            visited.add(key);
-            queue.push({mask:nxt, seq:seq.concat(dye)});
+    function findSequenceToTarget(target){
+      target = rgb(target);
+      var startMask = [255,255,255];
+      var base = cfg.START_RGB.slice();
+      var startColor = applyMaskToColor(base,startMask);
+      var q = [{mask:startMask, seq:[]}];
+      var visited = new Set([startMask.toString()]);
+      var head = 0;
+      var bestMask = startMask.slice(), bestSeq = [], bestColor = startColor.slice(), bestDiff = manhattan(bestColor,target);
+      var checked = 0;
+      while(head < q.length){
+        var node = q[head++]; checked++;
+        var color = applyMaskToColor(base,node.mask);
+        var diff = manhattan(color,target);
+        if(diff < bestDiff){
+          bestDiff = diff; bestMask = node.mask.slice(); bestSeq = node.seq.slice(); bestColor = color.slice();
+          if(bestDiff === 0) break;
+        }
+        if(node.seq.length < cfg.MAX_DEPTH){
+          for(var i=0;i<DYES.length;i++){
+            var dye = DYES[i];
+            var next = applyDyeToMask(node.mask,dye);
+            var key = next.toString();
+            if(!visited.has(key)){
+              visited.add(key);
+              q.push({mask:next, seq:node.seq.concat(dye)});
+            }
           }
         }
       }
-
-      if(statesChecked % 900 === 0) await nextFrame();
+      return {steps:bestSeq, finalMask:bestMask, finalColor:bestColor, diff:bestDiff, checked:checked};
     }
 
-    const result = {steps:bestSeq, finalMask:bestMask, finalColor:bestColor, diff:bestDiff, statesChecked, visited:visited.size};
-    searchCache.set(cacheKey, structuredCloneSafe(result));
-    if(searchCache.size > 60) searchCache.delete(searchCache.keys().next().value);
-    return result;
-  }
-
-  // ---------------------- UI helpers ----------------------
-  const $ = id => document.getElementById(id);
-  const views = [$('view-home'), $('view-saved'), $('view-history'), $('view-settings')];
-  const tabs = [$('tab-home'), $('tab-saved'), $('tab-history'), $('tab-settings')];
-  function show(view){
-    views.forEach(v => v.classList.add('hidden'));
-    tabs.forEach(t => t.classList.remove('active'));
-    view.classList.remove('hidden');
-    const map = new Map([[$('view-home'),$('tab-home')],[$('view-saved'),$('tab-saved')],[$('view-history'),$('tab-history')],[$('view-settings'),$('tab-settings')]]);
-    map.get(view)?.classList.add('active');
-    window.scrollTo({top:0,behavior:'smooth'});
-  }
-  function setSwatch(el, rgb){ el.style.background = `rgb(${normalizeRGB(rgb).join(',')})`; }
-  function toast(msg){
-    const el = $('toast');
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(el._t);
-    el._t = setTimeout(() => el.classList.remove('show'), 1650);
-  }
-  function prettySequence(seq){
-    if(!seq || !seq.length) return '<span class="seq-token" style="--chip:#ffffff">No dyes applied</span>';
-    const colors = {red:'#ff6961', green:'#77dd77', blue:'#72a7ff', black:'#d8d8d8'};
-    const parts = [];
-    let i = 0;
-    while(i < seq.length){
-      const token = seq[i];
-      let n = 1;
-      i++;
-      while(i < seq.length && seq[i] === token){ n++; i++; }
-      const hex = colors[token] || '#fff';
-      parts.push(`<span class="seq-token" style="--chip:${hex}">${n}x ${token}</span>`);
+    function prettySequence(seq){
+      if(!seq || !seq.length) return '<span class="seq-token">No dyes applied</span>';
+      var html = '', i = 0;
+      while(i < seq.length){
+        var token = seq[i], n = 1; i++;
+        while(i < seq.length && seq[i] === token){ n++; i++; }
+        html += '<span class="seq-token seq-' + safeText(token) + '">' + n + 'x ' + safeText(token) + '</span>';
+      }
+      return html;
     }
-    return parts.join('');
-  }
-  function plainSequence(seq){ return seq && seq.length ? seq.join(', ') : 'No dyes applied'; }
-  function formatItemSequence(it){ return it.sequence || prettySequence(it.rawSteps || []); }
-
-  // ---------------------- Presets ----------------------
-  function savePresets(){ store.set(STORAGE_KEYS.presets, basePresets); renderPresets(); }
-  function addBasePreset(name, rgb){
-    const cleanName = String(name || '').trim().slice(0,40) || `Base ${rgbToHex(rgb)}`;
-    const cleanRgb = normalizeRGB(rgb);
-    const existing = basePresets.find(p => String(p.name).toLowerCase() === cleanName.toLowerCase());
-    if(existing){
-      existing.rgb = cleanRgb;
-      existing.updatedAt = new Date().toISOString();
-      toast('Preset updated');
-    } else {
-      basePresets.push({id:cryptoId(), name:cleanName, rgb:cleanRgb, createdAt:new Date().toISOString()});
-      toast('Preset saved');
-    }
-    savePresets();
-  }
-  function cryptoId(){
-    if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
-  }
-  function useBasePreset(rgb){
-    cfg.START_RGB = normalizeRGB(rgb);
-    saveCfg();
-    searchCache.clear();
-    loadSettingsForm();
-    renderPresets();
-    toast('Base preset applied');
-  }
-  function deletePreset(id){
-    basePresets = basePresets.filter(p => p.id !== id);
-    savePresets();
-    toast('Preset deleted');
-  }
-  function renderPresets(){
-    const homeBox = $('preset-list');
-    const settingsBox = $('settings-preset-list');
-    if(!basePresets.length){
-      homeBox.innerHTML = '<div class="empty">No base presets yet. Save your current base or target color to create one.</div>';
-      settingsBox.innerHTML = '<div class="empty">No base presets saved yet.</div>';
-      updateCountsAndBase();
-      return;
+    function plainSequence(seq){ return seq && seq.length ? seq.join(', ') : 'No dyes applied'; }
+    function setSwatch(node, color){ if(node) node.style.background = 'rgb(' + rgb(color).join(',') + ')'; }
+    function toast(msg){ var t = el('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._timer); t._timer = setTimeout(function(){ t.classList.remove('show'); }, 1600); }
+    function copyText(text,msg){
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(function(){ toast(msg || 'Copied'); }).catch(fallback); }
+      else fallback();
+      function fallback(){ var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast(msg || 'Copied'); }
     }
 
-    homeBox.innerHTML = basePresets.map(p => `
-      <button type="button" class="preset-card" data-use-preset="${escapeAttr(p.id)}">
-        <span class="mini" style="background:rgb(${normalizeRGB(p.rgb).join(',')})"></span>
-        <span><strong>${escapeHTML(p.name)}</strong><small>${rgbPlain(p.rgb)} · use as base</small></span>
-      </button>
-    `).join('');
-    homeBox.querySelectorAll('[data-use-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const p = basePresets.find(x => x.id === btn.dataset.usePreset);
-        if(p) useBasePreset(p.rgb);
+    function currentTarget(){ return [clamp255(el('r').value), clamp255(el('g').value), clamp255(el('b').value)]; }
+    function syncPickerFromRGB(){ var c = currentTarget(); el('target-color').value = rgbToHex(c); el('target-hex').textContent = rgbToHex(c).toUpperCase(); setSwatch(el('target-live-swatch'),c); }
+    function syncRGBFromPicker(){ var c = hexToRgb(el('target-color').value); el('r').value=c[0]; el('g').value=c[1]; el('b').value=c[2]; syncPickerFromRGB(); }
+
+    function renderResult(res){
+      el('seq-html').innerHTML = res.sequence;
+      el('final-color-text').textContent = rgbText(res.final_color) + ' / ' + rgbToHex(res.final_color).toUpperCase();
+      el('target-text').textContent = rgbText(res.target) + ' / ' + rgbToHex(res.target).toUpperCase();
+      el('final-mask-text').textContent = rgbText(res.final_mask);
+      el('diff-text').textContent = String(res.diff);
+      el('result-summary').textContent = 'Difference ' + res.diff + ' · checked ' + res.checked + ' states';
+      setSwatch(el('final-swatch'),res.final_color);
+      setSwatch(el('target-swatch'),res.target);
+      el('result-card').classList.remove('hidden');
+      paintCanvas(res.final_color);
+    }
+    function stripResult(res){ return { sequence:res.sequence, plainSequence:res.plainSequence, rawSteps:res.rawSteps, final_mask:rgb(res.final_mask), final_color:rgb(res.final_color), target:rgb(res.target), diff:res.diff, checked:res.checked, ts:res.ts || new Date().toISOString() }; }
+
+    el('finder-form').addEventListener('submit', function(e){
+      e.preventDefault();
+      var btn = el('find-btn');
+      btn.disabled = true; btn.textContent = 'Searching...';
+      setTimeout(function(){
+        var target = currentTarget();
+        var found = findSequenceToTarget(target);
+        lastResult = { sequence:prettySequence(found.steps), plainSequence:plainSequence(found.steps), rawSteps:found.steps, final_mask:found.finalMask, final_color:found.finalColor, target:target, diff:found.diff, checked:found.checked, ts:new Date().toISOString() };
+        renderResult(lastResult);
+        historyItems.push(stripResult(lastResult)); historyItems = historyItems.slice(-20); saveHistory();
+        el('save-result').disabled = false;
+        btn.disabled = false; btn.textContent = 'Find Sequence';
+      }, 25);
+    });
+    el('save-result').addEventListener('click', function(){ if(!lastResult) return; savedItems.push(stripResult(lastResult)); saveSaved(); el('save-result').disabled = true; toast('Result saved'); });
+    el('save-target-preset').addEventListener('click', function(){ addPreset(el('preset-name').value, currentTarget()); });
+    el('copy-target').addEventListener('click', function(){ copyText(rgbPlain(currentTarget()), 'Target RGB copied'); });
+    el('copy-sequence').addEventListener('click', function(){ if(lastResult) copyText(lastResult.plainSequence, 'Sequence copied'); });
+
+    function addPreset(name, color){
+      var cleanName = String(name || '').trim().slice(0,40) || ('Base ' + rgbToHex(color).toUpperCase());
+      var existing = presets.find(function(p){ return p.name.toLowerCase() === cleanName.toLowerCase(); });
+      if(existing){ existing.rgb = rgb(color); toast('Preset updated'); }
+      else { presets.push({id:uid(), name:cleanName, rgb:rgb(color), createdAt:new Date().toISOString()}); toast('Preset saved'); }
+      savePresets();
+    }
+    function usePreset(id){ var p = presets.find(function(x){ return x.id === id; }); if(!p) return; cfg.START_RGB = rgb(p.rgb); saveCfg(); loadSettingsForm(); toast('Base preset applied'); }
+    function deletePreset(id){ presets = presets.filter(function(p){ return p.id !== id; }); savePresets(); toast('Preset deleted'); }
+    function renderPresets(){
+      var box = el('preset-list'), settingsBox = el('settings-preset-list');
+      if(!presets.length){ box.innerHTML = '<div class="empty">No base presets yet. Save your current base or target color.</div>'; settingsBox.innerHTML = '<div class="empty">No presets saved yet.</div>'; updateCounts(); return; }
+      box.innerHTML = presets.map(function(p){ return '<button type="button" class="preset-card" data-use="'+safeText(p.id)+'"><span class="mini" style="background:rgb('+rgb(p.rgb).join(',')+')"></span><span><strong>'+safeText(p.name)+'</strong><small>'+rgbPlain(p.rgb)+' · use as base</small></span></button>'; }).join('');
+      box.querySelectorAll('[data-use]').forEach(function(b){ b.addEventListener('click', function(){ usePreset(b.getAttribute('data-use')); }); });
+      settingsBox.innerHTML = presets.map(function(p){ return '<div class="item"><span class="swatch" style="background:rgb('+rgb(p.rgb).join(',')+')"></span><div class="item-main"><strong>'+safeText(p.name)+'</strong><small>'+rgbPlain(p.rgb)+'</small></div><div class="actions" style="margin:0"><button type="button" data-use="'+safeText(p.id)+'">Use</button><button type="button" class="danger" data-delete="'+safeText(p.id)+'">Delete</button></div></div>'; }).join('');
+      settingsBox.querySelectorAll('[data-use]').forEach(function(b){ b.addEventListener('click', function(){ usePreset(b.getAttribute('data-use')); }); });
+      settingsBox.querySelectorAll('[data-delete]').forEach(function(b){ b.addEventListener('click', function(){ deletePreset(b.getAttribute('data-delete')); }); });
+      updateCounts();
+    }
+
+    function renderSaved(){
+      var box = el('saved-list');
+      if(!savedItems.length){ box.innerHTML = '<div class="empty">No saved results yet.</div>'; return; }
+      var html = '';
+      for(var i=savedItems.length-1;i>=0;i--){ html += itemHTML(savedItems[i], i, true); }
+      box.innerHTML = html;
+      box.querySelectorAll('[data-del-saved]').forEach(function(b){ b.addEventListener('click', function(){ var idx = parseInt(b.getAttribute('data-del-saved'),10); savedItems.splice(idx,1); saveSaved(); renderSaved(); toast('Deleted'); }); });
+    }
+    function renderHistory(){
+      var q = el('hist-filter').value.trim().toLowerCase();
+      var box = el('history-list'), html = '';
+      for(var i=historyItems.length-1;i>=0;i--){
+        var it = historyItems[i];
+        var match = !q || rgbPlain(it.target).indexOf(q) >= 0 || String(it.plainSequence || '').toLowerCase().indexOf(q) >= 0;
+        if(match) html += itemHTML(it, i, false);
+      }
+      box.innerHTML = html || '<div class="empty">No history yet.</div>';
+    }
+    function itemHTML(it, idx, canDelete){
+      var date = it.ts ? new Date(it.ts).toLocaleString() : '';
+      return '<div class="item"><span class="swatch" style="background:rgb('+rgb(it.final_color).join(',')+')"></span><div class="item-main"><strong>Final '+rgbText(it.final_color)+' → Target '+rgbText(it.target)+'</strong><small>Diff '+safeText(it.diff)+(date ? ' · '+safeText(date) : '')+'</small><div class="sequence">'+(it.sequence || prettySequence(it.rawSteps || []))+'</div></div>'+(canDelete ? '<button type="button" class="danger" data-del-saved="'+idx+'">Delete</button>' : '')+'</div>';
+    }
+
+    function paintCanvas(color){
+      var canvas = el('visual'), ctx = canvas.getContext('2d');
+      var c = rgb(color);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      var grad = ctx.createLinearGradient(0,0,canvas.width,0);
+      grad.addColorStop(0,'rgb('+c.join(',')+')');
+      grad.addColorStop(1,'rgba('+c.join(',')+',.72)');
+      ctx.fillStyle = grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(0,0,canvas.width,13);
+    }
+    el('play').addEventListener('click', function(){
+      if(!lastResult) return;
+      if(playTimer) clearInterval(playTimer);
+      var steps = lastResult.rawSteps.slice(), mask = [255,255,255], i = 0;
+      paintCanvas(applyMaskToColor(cfg.START_RGB,mask));
+      playTimer = setInterval(function(){
+        if(i >= steps.length){ clearInterval(playTimer); playTimer = null; return; }
+        var d = dyeVector(steps[i++], cfg.ADD_VALUE, cfg.SUB_VALUE);
+        mask = [clamp255(mask[0]+d[0]),clamp255(mask[1]+d[1]),clamp255(mask[2]+d[2])];
+        paintCanvas(applyMaskToColor(cfg.START_RGB,mask));
+      }, 260);
+    });
+
+    function show(viewId){
+      ['finder','saved','history','settings'].forEach(function(name){
+        el('view-'+name).classList.toggle('hidden', name !== viewId);
+        el('tab-'+name).classList.toggle('active', name === viewId);
       });
-    });
-
-    settingsBox.innerHTML = basePresets.map(p => `
-      <div class="list-item">
-        <span class="swatch" style="background:rgb(${normalizeRGB(p.rgb).join(',')})"></span>
-        <div class="item-main"><strong>${escapeHTML(p.name)}</strong><small>${rgbPlain(p.rgb)}</small></div>
-        <div class="actions" style="margin:0">
-          <button type="button" class="btn small" data-use-preset="${escapeAttr(p.id)}">Use</button>
-          <button type="button" class="btn danger small" data-delete-preset="${escapeAttr(p.id)}">Delete</button>
-        </div>
-      </div>
-    `).join('');
-    settingsBox.querySelectorAll('[data-use-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const p = basePresets.find(x => x.id === btn.dataset.usePreset);
-        if(p) useBasePreset(p.rgb);
-      });
-    });
-    settingsBox.querySelectorAll('[data-delete-preset]').forEach(btn => btn.addEventListener('click', () => deletePreset(btn.dataset.deletePreset)));
-    updateCountsAndBase();
-  }
-
-  // ---------------------- Finder ----------------------
-  const form = $('finder-form');
-  const resultCard = $('result-card');
-  const btnSave = $('btn-save');
-  const rgbInputs = [$('r'), $('g'), $('b')];
-  const targetColor = $('target-color');
-
-  function currentTargetRGB(){ return rgbInputs.map(input => clamp255(input.value)); }
-  function updateTargetColorFromInputs(){
-    const rgb = currentTargetRGB();
-    targetColor.value = rgbToHex(rgb);
-    setSwatch($('target-live-swatch'), rgb);
-    $('target-hex-label').textContent = rgbToHex(rgb).toUpperCase();
-  }
-  function updateInputsFromTargetColor(){
-    const rgb = hexToRgb(targetColor.value);
-    rgbInputs[0].value = rgb[0]; rgbInputs[1].value = rgb[1]; rgbInputs[2].value = rgb[2];
-    updateTargetColorFromInputs();
-  }
-  rgbInputs.forEach(input => input.addEventListener('input', updateTargetColorFromInputs));
-  targetColor.addEventListener('input', updateInputsFromTargetColor);
-
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const target = currentTargetRGB();
-    document.body.classList.add('is-searching');
-    btnSave.disabled = true;
-    await nextFrame();
-    try{
-      const res = await findSequenceToTarget(target);
-      lastResult = {
-        sequence: prettySequence(res.steps),
-        plainSequence: plainSequence(res.steps),
-        rawSteps: res.steps,
-        final_mask: res.finalMask,
-        final_color: res.finalColor,
-        target,
-        diff: res.diff,
-        states_checked: res.statesChecked,
-        visited: res.visited,
-        ts: new Date().toISOString()
-      };
-      renderResult(lastResult);
-      addHistory(lastResult);
-      btnSave.disabled = false;
-    } finally {
-      document.body.classList.remove('is-searching');
+      if(viewId === 'saved') renderSaved();
+      if(viewId === 'history') renderHistory();
+      if(viewId === 'settings'){ loadSettingsForm(); renderPresets(); }
+      window.scrollTo(0,0);
     }
-  });
+    el('tab-finder').addEventListener('click', function(){ show('finder'); });
+    el('tab-saved').addEventListener('click', function(){ show('saved'); });
+    el('tab-history').addEventListener('click', function(){ show('history'); });
+    el('tab-settings').addEventListener('click', function(){ show('settings'); });
+    el('clear-saved').addEventListener('click', function(){ savedItems = []; saveSaved(); renderSaved(); toast('Saved cleared'); });
+    el('clear-history').addEventListener('click', function(){ historyItems = []; saveHistory(); renderHistory(); toast('History cleared'); });
+    el('hist-filter').addEventListener('input', renderHistory);
+    el('save-current-base').addEventListener('click', function(){ addPreset('', cfg.START_RGB); });
+    el('reset-settings').addEventListener('click', function(){ cfg.START_RGB = DEFAULTS.START_RGB.slice(); cfg.ADD_VALUE = DEFAULTS.ADD_VALUE; cfg.SUB_VALUE = DEFAULTS.SUB_VALUE; cfg.MAX_DEPTH = DEFAULTS.MAX_DEPTH; saveCfg(); loadSettingsForm(); toast('Settings reset'); });
 
-  function renderResult(result){
-    $('seq-html').innerHTML = result.sequence;
-    $('final-color-text').textContent = `${rgbText(result.final_color)} / ${rgbToHex(result.final_color).toUpperCase()}`;
-    $('target-text').textContent = `${rgbText(result.target)} / ${rgbToHex(result.target).toUpperCase()}`;
-    $('final-mask-text').textContent = rgbText(result.final_mask);
-    $('diff-text').textContent = String(result.diff);
-    $('result-summary').textContent = `Difference ${result.diff} · checked ${result.states_checked || '?'} states`;
-    setSwatch($('final-color-swatch'), result.final_color);
-    setSwatch($('target-swatch'), result.target);
-    resultCard.classList.remove('hidden');
-    paintCanvas(result.final_color);
-  }
-  function addHistory(result){
-    historyItems.push(stripResult(result));
-    historyItems = historyItems.slice(-20);
-    store.set(STORAGE_KEYS.history, historyItems);
-    updateCountsAndBase();
-  }
-  function stripResult(result){
-    return {
-      sequence: result.sequence,
-      plainSequence: result.plainSequence,
-      rawSteps: result.rawSteps,
-      final_mask: normalizeRGB(result.final_mask),
-      final_color: normalizeRGB(result.final_color),
-      target: normalizeRGB(result.target),
-      diff: result.diff,
-      ts: result.ts || new Date().toISOString()
-    };
-  }
-  btnSave.addEventListener('click', () => {
-    if(!lastResult) return;
-    savedItems.push(stripResult(lastResult));
-    store.set(STORAGE_KEYS.saved, savedItems);
-    btnSave.disabled = true;
-    updateCountsAndBase();
-    toast('Result saved');
-  });
-  $('save-target-preset').addEventListener('click', () => addBasePreset($('preset-name').value, currentTargetRGB()));
-  $('copy-target').addEventListener('click', () => copyText(rgbPlain(currentTargetRGB()), 'Target RGB copied'));
-  $('save-current-base').addEventListener('click', () => addBasePreset('', cfg.START_RGB));
-  $('copy-sequence').addEventListener('click', () => {
-    if(lastResult) copyText(lastResult.plainSequence, 'Sequence copied');
-  });
-
-  // ---------------------- Play animation ----------------------
-  $('play').addEventListener('click', () => {
-    if(!lastResult) return;
-    if(playTimer){ clearInterval(playTimer); playTimer = null; }
-    const steps = lastResult.rawSteps.slice();
-    let mask = [255,255,255];
-    let cur = applyMaskToColor(cfg.START_RGB, mask);
-    paintCanvas(cur);
-    let i = 0;
-    playTimer = setInterval(() => {
-      if(i >= steps.length){ clearInterval(playTimer); playTimer = null; return; }
-      const d = dyeVector(steps[i++], cfg.ADD_VALUE, cfg.SUB_VALUE);
-      mask = [clamp255(mask[0] + d[0]), clamp255(mask[1] + d[1]), clamp255(mask[2] + d[2])];
-      cur = applyMaskToColor(cfg.START_RGB, mask);
-      paintCanvas(cur);
-    }, 260);
-  });
-  function paintCanvas(rgb){
-    const canvas = $('visual');
-    const ctx = canvas.getContext('2d');
-    const [r,g,b] = normalizeRGB(rgb);
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    const grad = ctx.createLinearGradient(0,0,canvas.width,0);
-    grad.addColorStop(0, `rgb(${r},${g},${b})`);
-    grad.addColorStop(1, `rgba(${r},${g},${b},.72)`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = 'rgba(255,255,255,.22)';
-    ctx.fillRect(0,0,canvas.width,14);
-  }
-
-  // ---------------------- Saved and history ----------------------
-  function renderSaved(){
-    const box = $('saved-list');
-    if(!savedItems.length){ box.innerHTML = '<div class="empty">No saved results yet.</div>'; return; }
-    box.innerHTML = savedItems.map((it, idx) => listItemHTML(it, idx, true)).reverse().join('');
-    box.querySelectorAll('[data-del-saved]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        savedItems.splice(parseInt(btn.dataset.delSaved,10), 1);
-        store.set(STORAGE_KEYS.saved, savedItems);
-        renderSaved();
-        updateCountsAndBase();
-        toast('Saved result deleted');
-      });
+    function loadSettingsForm(){ el('sr').value=cfg.START_RGB[0]; el('sg').value=cfg.START_RGB[1]; el('sb').value=cfg.START_RGB[2]; el('add').value=cfg.ADD_VALUE; el('sub').value=cfg.SUB_VALUE; el('depth').value=cfg.MAX_DEPTH; el('base-color').value=rgbToHex(cfg.START_RGB); }
+    function syncBasePicker(){ el('base-color').value = rgbToHex([el('sr').value,el('sg').value,el('sb').value]); }
+    function syncBaseInputs(){ var c = hexToRgb(el('base-color').value); el('sr').value=c[0]; el('sg').value=c[1]; el('sb').value=c[2]; }
+    ['sr','sg','sb'].forEach(function(id){ el(id).addEventListener('input', syncBasePicker); });
+    el('base-color').addEventListener('input', syncBaseInputs);
+    el('settings-form').addEventListener('submit', function(e){
+      e.preventDefault();
+      cfg.START_RGB = [el('sr').value,el('sg').value,el('sb').value].map(clamp255);
+      cfg.ADD_VALUE = parseInt(el('add').value,10) || 0;
+      cfg.SUB_VALUE = parseInt(el('sub').value,10) || 0;
+      cfg.MAX_DEPTH = clamp(el('depth').value,0,80,DEFAULTS.MAX_DEPTH);
+      saveCfg(); toast('Settings saved'); show('finder');
     });
-  }
-  function renderHistory(){
-    const q = $('hist-filter').value.trim().toLowerCase();
-    const items = historyItems.map((it, idx) => ({...it, _idx:idx})).reverse().filter(it => {
-      if(!q) return true;
-      return rgbPlain(it.target).includes(q) || String(it.plainSequence || '').toLowerCase().includes(q) || String(it.sequence || '').toLowerCase().includes(q);
-    });
-    const box = $('history-list');
-    if(!items.length){ box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
-    box.innerHTML = items.map(it => listItemHTML(it, it._idx, false)).join('');
-  }
-  function listItemHTML(it, idx, allowDelete){
-    const date = it.ts ? new Date(it.ts).toLocaleString() : '';
-    return `
-      <div class="list-item">
-        <span class="swatch" style="background:rgb(${normalizeRGB(it.final_color).join(',')})"></span>
-        <div class="item-main">
-          <strong>Final ${rgbText(it.final_color)} → Target ${rgbText(it.target)}</strong>
-          <small>Diff ${escapeHTML(it.diff)}${date ? ' · ' + escapeHTML(date) : ''}</small>
-          <div class="sequence">${formatItemSequence(it)}</div>
-        </div>
-        ${allowDelete ? `<button type="button" class="btn danger small" data-del-saved="${idx}">Delete</button>` : ''}
-      </div>
-    `;
-  }
-  $('clear-saved').addEventListener('click', () => {
-    savedItems = [];
-    store.set(STORAGE_KEYS.saved, savedItems);
-    renderSaved(); updateCountsAndBase(); toast('Saved cleared');
-  });
-  $('clear-history').addEventListener('click', () => {
-    historyItems = [];
-    store.set(STORAGE_KEYS.history, historyItems);
-    renderHistory(); updateCountsAndBase(); toast('History cleared');
-  });
-  $('hist-filter').addEventListener('input', renderHistory);
-  $('history-back').addEventListener('click', () => show($('view-home')));
+    el('save-settings-base').addEventListener('click', function(){ addPreset(el('settings-preset-name').value, [el('sr').value,el('sg').value,el('sb').value].map(clamp255)); });
 
-  // ---------------------- Settings ----------------------
-  const settingsInputs = {sr:$('sr'), sg:$('sg'), sb:$('sb'), add:$('add'), sub:$('sub'), depth:$('depth'), color:$('base-color')};
-  function loadSettingsForm(){
-    settingsInputs.sr.value = cfg.START_RGB[0];
-    settingsInputs.sg.value = cfg.START_RGB[1];
-    settingsInputs.sb.value = cfg.START_RGB[2];
-    settingsInputs.add.value = cfg.ADD_VALUE;
-    settingsInputs.sub.value = cfg.SUB_VALUE;
-    settingsInputs.depth.value = cfg.MAX_DEPTH;
-    settingsInputs.color.value = rgbToHex(cfg.START_RGB);
-  }
-  function syncBaseColorFromInputs(){
-    settingsInputs.color.value = rgbToHex([settingsInputs.sr.value, settingsInputs.sg.value, settingsInputs.sb.value]);
-  }
-  function syncBaseInputsFromColor(){
-    const rgb = hexToRgb(settingsInputs.color.value);
-    settingsInputs.sr.value = rgb[0]; settingsInputs.sg.value = rgb[1]; settingsInputs.sb.value = rgb[2];
-  }
-  [settingsInputs.sr, settingsInputs.sg, settingsInputs.sb].forEach(input => input.addEventListener('input', syncBaseColorFromInputs));
-  settingsInputs.color.addEventListener('input', syncBaseInputsFromColor);
-  $('settings-form').addEventListener('submit', e => {
-    e.preventDefault();
-    cfg.START_RGB = [settingsInputs.sr.value, settingsInputs.sg.value, settingsInputs.sb.value].map(clamp255);
-    cfg.ADD_VALUE = parseInt(settingsInputs.add.value,10) || 0;
-    cfg.SUB_VALUE = parseInt(settingsInputs.sub.value,10) || 0;
-    cfg.MAX_DEPTH = clamp(settingsInputs.depth.value,0,80,DEFAULTS.MAX_DEPTH);
-    searchCache.clear();
-    saveCfg();
-    loadSettingsForm();
-    toast('Settings saved');
-    show($('view-home'));
-  });
-  $('save-settings-base').addEventListener('click', () => {
-    const rgb = [settingsInputs.sr.value, settingsInputs.sg.value, settingsInputs.sb.value].map(clamp255);
-    addBasePreset($('settings-preset-name').value, rgb);
-  });
-  $('back-home-settings').addEventListener('click', () => show($('view-home')));
-  $('reset-settings').addEventListener('click', () => {
-    cfg.START_RGB = DEFAULTS.START_RGB.slice();
-    cfg.ADD_VALUE = DEFAULTS.ADD_VALUE;
-    cfg.SUB_VALUE = DEFAULTS.SUB_VALUE;
-    cfg.MAX_DEPTH = DEFAULTS.MAX_DEPTH;
-    searchCache.clear();
-    saveCfg();
-    loadSettingsForm();
-    toast('Settings reset');
-  });
+    function updateBaseUI(){ setSwatch(el('base-swatch'),cfg.START_RGB); el('base-text').textContent = rgbText(cfg.START_RGB) + ' / ' + rgbToHex(cfg.START_RGB).toUpperCase(); el('base-details').textContent = 'Add '+cfg.ADD_VALUE+' · Sub '+cfg.SUB_VALUE+' · Depth '+cfg.MAX_DEPTH; }
+    function updateCounts(){ el('saved-count').textContent = savedItems.length; el('history-count').textContent = historyItems.length; }
 
-  // ---------------------- Tabs and utilities ----------------------
-  $('tab-home').addEventListener('click', () => show($('view-home')));
-  $('tab-saved').addEventListener('click', () => { renderSaved(); show($('view-saved')); });
-  $('tab-history').addEventListener('click', () => { renderHistory(); show($('view-history')); });
-  $('tab-settings').addEventListener('click', () => { loadSettingsForm(); renderPresets(); show($('view-settings')); });
-
-  async function copyText(text, okMsg){
-    try{
-      await navigator.clipboard.writeText(text);
-      toast(okMsg || 'Copied');
-    } catch(e){
-      const temp = document.createElement('textarea');
-      temp.value = text;
-      document.body.appendChild(temp);
-      temp.select();
-      document.execCommand('copy');
-      temp.remove();
-      toast(okMsg || 'Copied');
-    }
-  }
-  function escapeHTML(value){
-    return String(value).replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-  }
-  function escapeAttr(value){ return escapeHTML(value).replace(/`/g,'&#96;'); }
-  function updateCountsAndBase(){
-    $('saved-count').textContent = savedItems.length;
-    $('history-count').textContent = historyItems.length;
-    setSwatch($('base-swatch'), cfg.START_RGB);
-    $('base-text').textContent = `${rgbText(cfg.START_RGB)} / ${rgbToHex(cfg.START_RGB).toUpperCase()}`;
-    $('base-subtext').textContent = `Add ${cfg.ADD_VALUE} · Sub ${cfg.SUB_VALUE} · Depth ${cfg.MAX_DEPTH}`;
-  }
-
-  // ---------------------- Init ----------------------
-  function init(){
-    store.set(STORAGE_KEYS.cfg, cfg);
-    updateTargetColorFromInputs();
-    loadSettingsForm();
-    renderPresets();
-    updateCountsAndBase();
-    show($('view-home'));
-  }
-  init();
+    ['r','g','b'].forEach(function(id){ el(id).addEventListener('input', syncPickerFromRGB); });
+    el('target-color').addEventListener('input', syncRGBFromPicker);
+    syncPickerFromRGB(); loadSettingsForm(); updateBaseUI(); updateCounts(); renderPresets(); show('finder');
+  });
   </script>
 </body>
 </html>
